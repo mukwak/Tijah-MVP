@@ -68,6 +68,7 @@ RULES:
 - If you can calculate total from quantity * unit_price, do so
 - If only total is given, set unit_price = total / quantity
 - If quantity not mentioned, assume 1
+- ALWAYS include "detected_language" in your response: "pidgin" if the user spoke Nigerian Pidgin, "english" if standard English
 
 Return ONLY valid JSON. No explanation."""
 

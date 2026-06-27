@@ -147,6 +147,9 @@ async def _process_message(message: dict):
     intent = await parse_intent(text, lang)
     log.info(f"Intent: {intent}")
 
+    # Use detected language from NLU, fall back to stored preference
+    lang = intent.pop("detected_language", lang)
+
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
 
