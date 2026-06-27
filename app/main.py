@@ -228,7 +228,10 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
 
     if include_voice:
         try:
+            log.info(f"Generating TTS for voice reply to {phone}")
             audio_path = await text_to_speech(text, lang)
+            log.info(f"TTS generated: {audio_path}, sending audio...")
             await send_audio(phone, audio_path)
+            log.info("Voice reply sent successfully")
         except Exception as e:
-            log.warning(f"TTS failed, text-only response: {e}")
+            log.error(f"TTS/audio send failed: {e}", exc_info=True)
