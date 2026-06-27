@@ -105,16 +105,14 @@ async def _process_message(message: dict):
     shop = await cursor.fetchone()
 
     if not shop:
-        # New user - create shop and send welcome
-        await db.execute("INSERT INTO shops (phone) VALUES (?)", (phone,))
+        # New user - create shop, send welcome, and process their message
+        await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone, 1))
         await db.commit()
         is_voice = msg_type == "audio"
         await _send_response(phone, get_response("welcome", "english"), "english", include_voice=is_voice)
         return
 
     lang = shop[0] or "english"
-    onboarded = shop[1]
-    shop_name = shop[2]
     is_voice = msg_type == "audio"
 
     # Extract text from message
@@ -132,37 +130,6 @@ async def _process_message(message: dict):
 
     # Use detected language from NLU, fall back to stored preference
     lang = intent.pop("detected_language", lang)
-    action = intent.get("action", "help")
-
-    # Business actions that should always be processed, even during onboarding
-    business_actions = {
-        "record_sale", "add_stock", "record_credit", "record_payment",
-        "check_stock", "check_credits", "daily_summary", "record_expense",
-        "check_expenses", "set_price",
-    }
-
-    # Handle onboarding — but only if user isn't doing something more important
-    if not onboarded and not shop_name:
-        if action not in business_actions:
-            # Treat as shop name
-            shop_name = text.strip()[:100]
-            await db.execute(
-                "UPDATE shops SET name = ?, onboarded = 1 WHERE phone = ?",
-                (shop_name, phone),
-            )
-            await db.commit()
-            resp = get_response("shop_name_saved", lang, name=shop_name)
-            await _send_response(phone, resp, lang, include_voice=is_voice)
-            help_text = get_response("help", lang)
-            await _send_response(phone, help_text, lang, include_voice=is_voice)
-            return
-        else:
-            # User jumped straight to business — mark onboarded, process the action
-            await db.execute("UPDATE shops SET onboarded = 1 WHERE phone = ?", (phone,))
-            await db.commit()
-    elif not onboarded and shop_name:
-        await db.execute("UPDATE shops SET onboarded = 1 WHERE phone = ?", (phone,))
-        await db.commit()
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)

@@ -72,11 +72,20 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     if row and row[0] <= 3 and row[0] > 0:
         low_stock_msg = "\n" + get_response("stock_low", lang, product=product, quantity=_fmt(row[0]), unit=row[1])
 
-    return get_response(
+    result = get_response(
         "sale_recorded", lang,
         quantity=_fmt(quantity), unit=unit, product=product, total=_fmt(total),
         credit_note=credit_note,
     ) + low_stock_msg
+
+    # Drip hint for new users
+    sale_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if sale_count <= 3:
+        result += get_response("hint_after_sale", lang)
+
+    return result
 
 
 async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
@@ -107,10 +116,19 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
         total_cost = cost_price * quantity
         price_note = f" Cost: {_fmt(total_cost)} naira ({_fmt(cost_price)} each)."
 
-    return get_response(
+    result = get_response(
         "stock_added", lang,
         quantity=_fmt(quantity), unit=unit, product=product, price_note=price_note,
     )
+
+    # Drip hint for new users
+    stock_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if stock_count <= 2:
+        result += get_response("hint_after_stock", lang)
+
+    return result
 
 
 async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
@@ -123,10 +141,19 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
     await db.commit()
 
     note_text = f" ({note})" if note else ""
-    return get_response(
+    result = get_response(
         "credit_recorded", lang,
         customer=customer, amount=_fmt(amount), note=note_text,
     )
+
+    # Drip hint for new users
+    credit_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if credit_count <= 2:
+        result += get_response("hint_after_credit", lang, customer=customer)
+
+    return result
 
 
 async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
