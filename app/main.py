@@ -117,7 +117,7 @@ async def _process_message(message: dict):
     shop_name = shop[2]
 
     # Handle shop name setup (first reply after welcome)
-    if not onboarded:
+    if not onboarded and not shop_name:
         text = await _extract_text(message, msg_type)
         is_voice = msg_type == "audio"
         if text:
@@ -133,6 +133,10 @@ async def _process_message(message: dict):
             help_text = get_response("help", lang)
             await _send_response(phone, help_text, lang, include_voice=is_voice)
             return
+    elif not onboarded and shop_name:
+        # Shop name exists but onboarded flag not set — fix it
+        await db.execute("UPDATE shops SET onboarded = 1 WHERE phone = ?", (phone,))
+        await db.commit()
 
     # Extract text from message
     text = await _extract_text(message, msg_type)
