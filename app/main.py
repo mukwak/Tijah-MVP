@@ -108,16 +108,18 @@ async def _process_message(message: dict):
         # New user - create shop and send welcome
         await db.execute("INSERT INTO shops (phone) VALUES (?)", (phone,))
         await db.commit()
-        await _send_response(phone, get_response("welcome", "pidgin"), "pidgin")
+        is_voice = msg_type == "audio"
+        await _send_response(phone, get_response("welcome", "english"), "english", include_voice=is_voice)
         return
 
-    lang = shop[0] or "pidgin"
+    lang = shop[0] or "english"
     onboarded = shop[1]
     shop_name = shop[2]
 
     # Handle shop name setup (first reply after welcome)
     if not onboarded:
         text = await _extract_text(message, msg_type)
+        is_voice = msg_type == "audio"
         if text:
             shop_name = text.strip()[:100]
             await db.execute(
@@ -126,10 +128,10 @@ async def _process_message(message: dict):
             )
             await db.commit()
             resp = get_response("shop_name_saved", lang, name=shop_name)
-            await _send_response(phone, resp, lang)
+            await _send_response(phone, resp, lang, include_voice=is_voice)
             # Also send help after onboarding
             help_text = get_response("help", lang)
-            await _send_response(phone, help_text, lang)
+            await _send_response(phone, help_text, lang, include_voice=is_voice)
             return
 
     # Extract text from message
@@ -148,8 +150,9 @@ async def _process_message(message: dict):
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
 
-    # Send response
-    await _send_response(phone, response_text, lang)
+    # Send response - voice reply only if user sent a voice note
+    is_voice = msg_type == "audio"
+    await _send_response(phone, response_text, lang, include_voice=is_voice)
 
 
 async def _extract_text(message: dict, msg_type: str) -> str | None:
@@ -216,14 +219,13 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     return get_response("not_understood", lang)
 
 
-async def _send_response(phone: str, text: str, lang: str):
-    """Send response as both text and voice note."""
-    # Always send text first (for those who can read)
+async def _send_response(phone: str, text: str, lang: str, include_voice: bool = False):
+    """Send response - always text, voice note only if user sent a voice message."""
     await send_text(phone, text)
 
-    # Also send as voice note (voice-first for low-literacy users)
-    try:
-        audio_path = await text_to_speech(text, lang)
-        await send_audio(phone, audio_path)
-    except Exception as e:
-        log.warning(f"TTS failed, text-only response: {e}")
+    if include_voice:
+        try:
+            audio_path = await text_to_speech(text, lang)
+            await send_audio(phone, audio_path)
+        except Exception as e:
+            log.warning(f"TTS failed, text-only response: {e}")

@@ -27,7 +27,7 @@ async def init_tables(db: aiosqlite.Connection):
         CREATE TABLE IF NOT EXISTS shops (
             phone       TEXT PRIMARY KEY,
             name        TEXT,
-            language    TEXT DEFAULT 'pidgin',
+            language    TEXT DEFAULT 'english',
             created_at  TEXT DEFAULT (datetime('now')),
             onboarded   INTEGER DEFAULT 0
         );
