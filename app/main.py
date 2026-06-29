@@ -187,6 +187,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "check_expenses": handlers.handle_check_expenses,
         "set_price": handlers.handle_set_price,
         "change_language": handlers.handle_change_language,
+        "undo": handlers.handle_undo,
+        "multi_sale": handlers.handle_multi_sale,
     }
 
     handler = handler_map.get(action)

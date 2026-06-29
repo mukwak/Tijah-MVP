@@ -17,7 +17,7 @@ Your job: parse the user's voice message into a structured JSON action.
 ACTIONS you can return:
 
 1. RECORD_SALE - User sold something
-   {"action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000, "customer": null, "is_credit": false}
+   {"action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000, "customer": null, "is_credit": false, "when": "today"}
 
 2. ADD_STOCK - User bought/received stock
    {"action": "add_stock", "product": "cement", "quantity": 10, "unit": "bag", "cost_price": 3000}
@@ -56,6 +56,17 @@ ACTIONS you can return:
 13. CHANGE_LANGUAGE - User wants to switch language
     {"action": "change_language", "language": "english"}
 
+14. UNDO - User wants to cancel/undo/correct the last thing they recorded
+    {"action": "undo"}
+    Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "I made a mistake", "no no no", "wrong"
+
+15. MULTI_SALE - User mentions selling MULTIPLE different products in one message
+    {"action": "multi_sale", "items": [
+      {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
+      {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000}
+    ], "when": "today"}
+    IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
+
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
 - "k" or "thousand" = multiply by 1000
@@ -64,10 +75,16 @@ RULES:
   "how my shop do" = daily summary, "how much ___ I get" = check stock,
   "who owe me" = check credits, "I spend" / "I pay for" = expense,
   "wetin I spend" = check expenses
-- Normalize product names to lowercase singular
+- PRODUCT NAME NORMALIZATION - always use the simplest common name:
+  "pure water" / "sachet water" / "table water" = "water"
+  "minerals" / "soft drink" / "coke" / "fanta" / "soda" = use the specific brand if mentioned, else "soft drink"
+  "groundnut" / "peanut" = "groundnut"
+  "garri" / "gari" = "garri"
+  Use lowercase singular for all product names
 - If you can calculate total from quantity * unit_price, do so
 - If only total is given, set unit_price = total / quantity
 - If quantity not mentioned, assume 1
+- "when" field: "today" (default), "yesterday", or an offset like "-2" for 2 days ago
 - ALWAYS include "detected_language" in your response: "pidgin" if the user spoke Nigerian Pidgin, "english" if standard English
 
 Return ONLY valid JSON. No explanation."""
@@ -94,7 +111,7 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 300,
+            "maxOutputTokens": 500,
             "responseMimeType": "application/json",
         },
     }

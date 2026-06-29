@@ -1,4 +1,5 @@
 """Business logic handlers for each intent."""
+from datetime import datetime, timedelta
 from app.database import get_db
 from app.responses import get_response
 
@@ -10,11 +11,26 @@ def _fmt(num: float) -> str:
     return f"{num:,.1f}"
 
 
+def _resolve_when(when: str) -> str | None:
+    """Convert 'yesterday', '-2' etc. to a datetime string. None = now (use DB default)."""
+    if not when or when == "today":
+        return None
+    if when == "yesterday":
+        dt = datetime.now() - timedelta(days=1)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    try:
+        days = int(when)
+        dt = datetime.now() + timedelta(days=days)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+
+
 async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
     quantity = float(data.get("quantity", 1))
-    unit = data.get("unit", "piece")
+    unit = data.get("unit") or "piece"
     total = float(data.get("total", 0))
     unit_price = float(data.get("unit_price", 0))
     customer = data.get("customer")
@@ -43,12 +59,20 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         (quantity, product_id),
     )
 
-    # Record sale
-    await db.execute(
-        """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, customer, is_credit)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-        (phone, product_id, product, quantity, unit_price, total, customer, 1 if is_credit else 0),
-    )
+    # Record sale (with optional backdating)
+    when = _resolve_when(data.get("when", "today"))
+    if when:
+        await db.execute(
+            """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, customer, is_credit, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (phone, product_id, product, quantity, unit_price, total, customer, 1 if is_credit else 0, when),
+        )
+    else:
+        await db.execute(
+            """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, customer, is_credit)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (phone, product_id, product, quantity, unit_price, total, customer, 1 if is_credit else 0),
+        )
 
     # If credit sale, also record in credits
     if is_credit and customer:
@@ -92,7 +116,7 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
     quantity = float(data.get("quantity", 1))
-    unit = data.get("unit", "piece")
+    unit = data.get("unit") or "piece"
     cost_price = float(data.get("cost_price", 0))
 
     product_id = await _get_or_create_product(db, phone, product, unit, 0, cost_price)
@@ -159,6 +183,7 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
 async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     customer = data.get("customer", "Customer")
+    customer = await _normalize_customer(db, phone, customer)
     amount = float(data.get("amount", 0))
 
     # Find unsettled credits for this customer
@@ -433,7 +458,7 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 async def handle_set_price(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
-    unit = data.get("unit", "piece")
+    unit = data.get("unit") or "piece"
     sell_price = float(data.get("sell_price", 0))
 
     product_id = await _get_or_create_product(db, phone, product, unit, sell_price)
@@ -459,6 +484,105 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     await db.commit()
 
     return get_response("language_changed", new_lang)
+
+
+async def handle_undo(phone: str, data: dict, lang: str) -> str:
+    """Undo the last recorded action (sale, expense, credit, or stock entry)."""
+    db = await get_db()
+
+    # Find the most recent action across all tables
+    tables = [
+        ("sales", "product_name", "total", "quantity", "product_id"),
+        ("expenses", "description", "amount", None, None),
+        ("credits", "customer", "amount", None, None),
+        ("stock_entries", "product_name", "cost_price", "quantity", "product_id"),
+    ]
+
+    latest = None
+    latest_table = None
+    latest_qty_col = None
+    latest_pid_col = None
+
+    for table, desc_col, amount_col, qty_col, pid_col in tables:
+        cursor = await db.execute(
+            f"SELECT id, {desc_col}, {amount_col}, created_at"
+            + (f", {qty_col}, {pid_col}" if qty_col else "")
+            + f" FROM {table} WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
+            (phone,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            if latest is None or row[3] > latest[3]:
+                latest = row
+                latest_table = table
+                latest_qty_col = qty_col
+                latest_pid_col = pid_col
+
+    if not latest:
+        if lang == "pidgin":
+            return "Nothing to undo. You never record anything yet."
+        return "Nothing to undo. You haven't recorded anything yet."
+
+    desc = latest[1]
+    amount = _fmt(latest[2]) if latest[2] else ""
+
+    # Restore stock if undoing a sale (add back) or stock entry (remove)
+    if latest_table == "sales" and latest_qty_col:
+        qty = latest[4]
+        pid = latest[5]
+        if pid:
+            await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (qty, pid))
+    elif latest_table == "stock_entries" and latest_qty_col:
+        qty = latest[4]
+        pid = latest[5]
+        if pid:
+            await db.execute("UPDATE products SET stock_qty = MAX(0, stock_qty - ?) WHERE id = ?", (qty, pid))
+
+    # Delete the record
+    await db.execute(f"DELETE FROM {latest_table} WHERE id = ?", (latest[0],))
+    await db.commit()
+
+    # Build human-readable description
+    labels = {"sales": "sale", "expenses": "expense", "credits": "credit", "stock_entries": "stock"}
+    label = labels.get(latest_table, "record")
+
+    if lang == "pidgin":
+        return f"I don remove the last {label}: {desc} ({amount} naira)"
+    return f"Removed last {label}: {desc} ({amount} naira)"
+
+
+async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
+    """Handle multiple products sold in one message."""
+    items = data.get("items", [])
+    if not items:
+        return get_response("not_understood", lang)
+
+    results = []
+    grand_total = 0
+
+    for item in items:
+        # Process each item as a sale
+        item["action"] = "record_sale"
+        if "when" not in item and "when" in data:
+            item["when"] = data["when"]
+        result = await handle_record_sale(phone, item, lang)
+        # Extract just the first line (the confirmation)
+        first_line = result.split("\n")[0]
+        results.append(first_line)
+        total = float(item.get("total", 0))
+        if not total:
+            qty = float(item.get("quantity", 1))
+            price = float(item.get("unit_price", 0))
+            total = qty * price
+        grand_total += total
+
+    summary = "\n".join(results)
+    if lang == "pidgin":
+        summary += f"\n\nTotal: {_fmt(grand_total)} naira for everything."
+    else:
+        summary += f"\n\nTotal: {_fmt(grand_total)} naira for all items."
+
+    return summary
 
 
 # ---- Helpers ----
@@ -510,7 +634,37 @@ async def _get_or_create_product(db, phone, name, unit="piece", sell_price=0, co
     return cursor.lastrowid
 
 
+async def _normalize_customer(db, phone, name):
+    """Find existing customer name by fuzzy match to prevent fragmentation.
+    'Mama Nkechi' matches 'Mama Inkechi', 'mama nkechi', etc."""
+    cursor = await db.execute(
+        "SELECT DISTINCT customer FROM credits WHERE phone = ?", (phone,)
+    )
+    rows = await cursor.fetchall()
+    name_lower = name.lower().replace(" ", "")
+
+    for row in rows:
+        existing = row[0]
+        existing_lower = existing.lower().replace(" ", "")
+        # Exact match (case-insensitive)
+        if name_lower == existing_lower:
+            return existing
+        # One contains the other (handles "Mama Nkechi" vs "Nkechi")
+        if name_lower in existing_lower or existing_lower in name_lower:
+            return existing
+        # High character overlap (handles transcription variations)
+        if len(name_lower) >= 4 and len(existing_lower) >= 4:
+            shorter = min(name_lower, existing_lower, key=len)
+            longer = max(name_lower, existing_lower, key=len)
+            matches = sum(1 for c in shorter if c in longer)
+            if matches / len(shorter) >= 0.8:
+                return existing
+
+    return name
+
+
 async def _add_credit(db, phone, customer, amount, note=""):
+    customer = await _normalize_customer(db, phone, customer)
     await db.execute(
         """INSERT INTO credits (phone, customer, amount, note)
            VALUES (?, ?, ?, ?)""",
