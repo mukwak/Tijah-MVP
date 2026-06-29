@@ -1,6 +1,9 @@
 import aiosqlite
 from app.config import DB_PATH
 
+# Nigeria is WAT (West Africa Time) = UTC+1
+TIMEZONE_OFFSET = "+01:00"
+
 _db = None
 
 
@@ -28,7 +31,7 @@ async def init_tables(db: aiosqlite.Connection):
             phone       TEXT PRIMARY KEY,
             name        TEXT,
             language    TEXT DEFAULT 'english',
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             onboarded   INTEGER DEFAULT 0
         );
 
@@ -40,7 +43,7 @@ async def init_tables(db: aiosqlite.Connection):
             stock_qty   REAL DEFAULT 0,
             cost_price  REAL DEFAULT 0,
             sell_price  REAL DEFAULT 0,
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone),
             UNIQUE(phone, name)
         );
@@ -55,7 +58,7 @@ async def init_tables(db: aiosqlite.Connection):
             total       REAL NOT NULL,
             customer    TEXT,
             is_credit   INTEGER DEFAULT 0,
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone),
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
@@ -68,8 +71,8 @@ async def init_tables(db: aiosqlite.Connection):
             paid        REAL DEFAULT 0,
             settled     INTEGER DEFAULT 0,
             note        TEXT,
-            created_at  TEXT DEFAULT (datetime('now')),
-            updated_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
+            updated_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone)
         );
 
@@ -81,7 +84,7 @@ async def init_tables(db: aiosqlite.Connection):
             quantity    REAL NOT NULL,
             cost_price  REAL DEFAULT 0,
             entry_type  TEXT DEFAULT 'purchase',
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone),
             FOREIGN KEY (product_id) REFERENCES products(id)
         );
@@ -92,14 +95,14 @@ async def init_tables(db: aiosqlite.Connection):
             description TEXT NOT NULL,
             amount      REAL NOT NULL,
             category    TEXT DEFAULT 'other',
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone)
         );
 
         CREATE TABLE IF NOT EXISTS pending_actions (
             phone       TEXT PRIMARY KEY,
             action_data TEXT NOT NULL,
-            created_at  TEXT DEFAULT (datetime('now')),
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
             FOREIGN KEY (phone) REFERENCES shops(phone)
         );
 

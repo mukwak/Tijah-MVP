@@ -13,15 +13,17 @@ def _fmt(num: float) -> str:
 
 
 def _resolve_when(when: str) -> str | None:
-    """Convert 'yesterday', '-2' etc. to a datetime string. None = now (use DB default)."""
+    """Convert 'yesterday', '-2' etc. to a WAT datetime string. None = now (use DB default)."""
     if not when or when == "today":
         return None
+    # UTC+1 for Nigeria (WAT)
+    now_wat = datetime.utcnow() + timedelta(hours=1)
     if when == "yesterday":
-        dt = datetime.now() - timedelta(days=1)
+        dt = now_wat - timedelta(days=1)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     try:
         days = int(when)
-        dt = datetime.now() + timedelta(days=days)
+        dt = now_wat + timedelta(days=days)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
@@ -229,13 +231,13 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
         outstanding = credit_amount - already_paid
         if remaining_payment >= outstanding:
             await db.execute(
-                "UPDATE credits SET paid = amount, settled = 1, updated_at = datetime('now') WHERE id = ?",
+                "UPDATE credits SET paid = amount, settled = 1, updated_at = datetime('now', '+1 hours') WHERE id = ?",
                 (credit_id,),
             )
             remaining_payment -= outstanding
         else:
             await db.execute(
-                "UPDATE credits SET paid = paid + ?, updated_at = datetime('now') WHERE id = ?",
+                "UPDATE credits SET paid = paid + ?, updated_at = datetime('now', '+1 hours') WHERE id = ?",
                 (remaining_payment, credit_id),
             )
             remaining_payment = 0
@@ -369,13 +371,13 @@ async def handle_check_expenses(phone: str, data: dict, lang: str) -> str:
     period = data.get("period", "today")
 
     if period == "today":
-        date_filter = "date(created_at) = date('now')"
+        date_filter = "date(created_at) = date('now', '+1 hours')"
         period_text = "today" if lang == "english" else "today"
     elif period == "week":
-        date_filter = "created_at >= datetime('now', '-7 days')"
+        date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
         period_text = "this week" if lang == "english" else "this week"
     else:
-        date_filter = "created_at >= datetime('now', '-30 days')"
+        date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
         period_text = "this month" if lang == "english" else "this month"
 
     cursor = await db.execute(
@@ -400,38 +402,99 @@ async def handle_check_expenses(phone: str, data: dict, lang: str) -> str:
     )
 
 
+async def handle_check_sales(phone: str, data: dict, lang: str) -> str:
+    """Show individual sales for a period."""
+    db = await get_db()
+    period = data.get("period", "today")
+
+    if period == "today":
+        date_filter = "date(created_at) = date('now', '+1 hours')"
+        period_text = "today"
+    elif period == "yesterday":
+        date_filter = "date(created_at) = date('now', '+1 hours', '-1 day')"
+        period_text = "yesterday"
+    elif period == "week":
+        date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
+        period_text = "this week"
+    else:
+        date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
+        period_text = "this month"
+
+    cursor = await db.execute(
+        f"""SELECT product_name, quantity, unit_price, total, created_at
+           FROM sales WHERE phone = ? AND {date_filter}
+           ORDER BY created_at DESC""",
+        (phone,),
+    )
+    rows = await cursor.fetchall()
+
+    if not rows:
+        if lang == "pidgin":
+            return f"You never sell anything {period_text}."
+        return f"No sales {period_text}."
+
+    total = sum(r[3] for r in rows)
+    sales_lines = []
+    for r in rows:
+        time_str = r[4][11:16] if r[4] and len(r[4]) > 15 else ""
+        line = f"  {r[0]} x{_fmt(r[1])} = {_fmt(r[3])} naira"
+        if time_str:
+            line += f"  ({time_str})"
+        sales_lines.append(line)
+
+    sales_list = "\n".join(sales_lines)
+
+    if lang == "pidgin":
+        return f"Wetin you sell {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
+    return f"Your sales {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
+
+
 async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
+    period = data.get("period", "today")
 
-    # Sales today
+    if period == "today":
+        date_filter = "date(created_at) = date('now', '+1 hours')"
+        update_filter = "date(updated_at) = date('now', '+1 hours')"
+        period_label = "Today" if lang == "english" else "Today"
+    elif period == "yesterday":
+        date_filter = "date(created_at) = date('now', '+1 hours', '-1 day')"
+        update_filter = "date(updated_at) = date('now', '+1 hours', '-1 day')"
+        period_label = "Yesterday" if lang == "english" else "Yesterday"
+    elif period == "week":
+        date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
+        update_filter = "updated_at >= datetime('now', '+1 hours', '-7 days')"
+        period_label = "This week" if lang == "english" else "This week"
+    else:
+        date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
+        update_filter = "updated_at >= datetime('now', '+1 hours', '-30 days')"
+        period_label = "This month" if lang == "english" else "This month"
+
+    # Sales
     cursor = await db.execute(
-        """SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales
-           WHERE phone = ? AND date(created_at) = date('now')""",
+        f"SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {date_filter}",
         (phone,),
     )
     row = await cursor.fetchone()
     sales_count, sales_total = row[0], row[1]
 
-    # Expenses today
+    # Expenses
     cursor = await db.execute(
-        """SELECT COALESCE(SUM(amount), 0) FROM expenses
-           WHERE phone = ? AND date(created_at) = date('now')""",
+        f"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE phone = ? AND {date_filter}",
         (phone,),
     )
     expense_total = (await cursor.fetchone())[0]
 
-    # Credits given today
+    # Credits given
     cursor = await db.execute(
-        """SELECT COALESCE(SUM(amount), 0) FROM credits
-           WHERE phone = ? AND date(created_at) = date('now')""",
+        f"SELECT COALESCE(SUM(amount), 0) FROM credits WHERE phone = ? AND {date_filter}",
         (phone,),
     )
     credit_total = (await cursor.fetchone())[0]
 
-    # Payments received today
+    # Payments received
     cursor = await db.execute(
-        """SELECT COALESCE(SUM(paid), 0) FROM credits
-           WHERE phone = ? AND date(updated_at) = date('now') AND paid > 0""",
+        f"SELECT COALESCE(SUM(paid), 0) FROM credits WHERE phone = ? AND {update_filter} AND paid > 0",
         (phone,),
     )
     payment_total = (await cursor.fetchone())[0]
@@ -445,6 +508,7 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     if expense_total > 0:
         result = get_response(
             "daily_summary_with_expenses", lang,
+            period=period_label,
             sales_count=sales_count,
             sales_total=_fmt(sales_total),
             expense_total=_fmt(expense_total),
@@ -453,6 +517,7 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     else:
         result = get_response(
             "daily_summary_simple", lang,
+            period=period_label,
             sales_count=sales_count,
             sales_total=_fmt(sales_total),
         )
@@ -465,8 +530,8 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 
     # Top products (only if more than 1 product sold)
     cursor = await db.execute(
-        """SELECT product_name, SUM(quantity), SUM(total) FROM sales
-           WHERE phone = ? AND date(created_at) = date('now')
+        f"""SELECT product_name, SUM(quantity), SUM(total) FROM sales
+           WHERE phone = ? AND {date_filter}
            GROUP BY product_name ORDER BY SUM(total) DESC LIMIT 3""",
         (phone,),
     )
@@ -509,6 +574,75 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     await db.commit()
 
     return get_response("language_changed", new_lang)
+
+
+async def handle_credit_reminder(phone: str, data: dict, lang: str) -> str:
+    """Generate a shareable/forwardable credit reminder for a customer."""
+    db = await get_db()
+    customer = data.get("customer", "")
+
+    if not customer:
+        if lang == "pidgin":
+            return "Who you wan remind? Tell me like: \"remind Mama Joy\""
+        return "Who do you want to remind? Tell me like: \"remind Mama Joy\""
+
+    # Normalize customer name
+    matched, match_type = await _find_similar_customer(db, phone, customer)
+    if match_type:
+        customer = matched
+
+    cursor = await db.execute(
+        """SELECT amount, paid, note, created_at FROM credits
+           WHERE phone = ? AND LOWER(customer) = LOWER(?) AND settled = 0
+           ORDER BY created_at ASC""",
+        (phone, customer),
+    )
+    rows = await cursor.fetchall()
+
+    if not rows:
+        return get_response("customer_not_found", lang, customer=customer)
+
+    total = sum(r[0] - r[1] for r in rows)
+
+    # Get shop name for the reminder
+    cursor = await db.execute("SELECT name FROM shops WHERE phone = ?", (phone,))
+    shop_row = await cursor.fetchone()
+    shop_name = shop_row[0] if shop_row and shop_row[0] else "our shop"
+
+    # Build a clean, forwardable message
+    items = []
+    for r in rows:
+        owed = r[0] - r[1]
+        date = r[3][:10] if r[3] else ""
+        note = r[2] if r[2] else ""
+        line = f"  {_fmt(owed)} naira"
+        if note:
+            line += f" - {note}"
+        if date:
+            line += f" ({date})"
+        items.append(line)
+
+    items_str = "\n".join(items)
+
+    if lang == "pidgin":
+        reminder = (
+            f"Hello {customer},\n\n"
+            f"This na friendly reminder from {shop_name}.\n"
+            f"You still owe us {_fmt(total)} naira:\n\n"
+            f"{items_str}\n\n"
+            f"Abeg make payment when you fit. Thank you!"
+        )
+    else:
+        reminder = (
+            f"Hello {customer},\n\n"
+            f"This is a friendly reminder from {shop_name}.\n"
+            f"You still owe {_fmt(total)} naira:\n\n"
+            f"{items_str}\n\n"
+            f"Please make payment when you can. Thank you!"
+        )
+
+    prefix = "Forward this message to " + customer + ":\n\n" if lang == "english" else "Send this message give " + customer + ":\n\n"
+    return prefix + reminder
 
 
 async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
@@ -591,6 +725,59 @@ async def handle_rename_customer(phone: str, data: dict, lang: str) -> str:
     if lang == "pidgin":
         return f"I don change \"{old_name}\" to \"{new_name}\" for all {count} record(s)."
     return f"Changed \"{old_name}\" to \"{new_name}\" across {count} record(s)."
+
+
+async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
+    """Edit the last recorded sale (change quantity, price, etc.)."""
+    db = await get_db()
+    field = data.get("field", "")
+    new_value = data.get("new_value")
+
+    if not field or new_value is None:
+        if lang == "pidgin":
+            return "Wetin you wan change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
+        return "What do you want to change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
+
+    # Get the last sale
+    cursor = await db.execute(
+        "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
+        (phone,),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        if lang == "pidgin":
+            return "I no see any sale to change."
+        return "No sale to edit."
+
+    sale_id, product_name, old_qty, old_price, old_total, product_id = row[0], row[1], row[2], row[3], row[4], row[5]
+    new_qty, new_price, new_total = old_qty, old_price, old_total
+
+    new_value = float(new_value)
+
+    if field in ("quantity", "qty"):
+        new_qty = new_value
+        new_total = new_qty * new_price
+        # Fix stock: restore old qty, deduct new qty
+        if product_id:
+            stock_diff = old_qty - new_qty
+            await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
+    elif field in ("price", "unit_price"):
+        new_price = new_value
+        new_total = new_qty * new_price
+    elif field == "total":
+        new_total = new_value
+        if new_qty > 0:
+            new_price = new_total / new_qty
+
+    await db.execute(
+        "UPDATE sales SET quantity = ?, unit_price = ?, total = ? WHERE id = ?",
+        (new_qty, new_price, new_total, sale_id),
+    )
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"I don change am. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
+    return f"Updated. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
 
 
 async def handle_undo(phone: str, data: dict, lang: str) -> str:

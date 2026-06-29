@@ -108,17 +108,17 @@ RESPONSES = {
 
     # === DAILY SUMMARY ===
     "daily_summary_simple": {
-        "pidgin": "Today you sell {sales_count} things = {sales_total} naira.",
-        "english": "Today you sold {sales_count} things = {sales_total} naira.",
+        "pidgin": "{period} you sell {sales_count} things = {sales_total} naira.",
+        "english": "{period} you sold {sales_count} things = {sales_total} naira.",
     },
     "daily_summary_with_expenses": {
         "pidgin": (
-            "Today you sell {sales_count} things = {sales_total} naira.\n"
+            "{period} you sell {sales_count} things = {sales_total} naira.\n"
             "You spend {expense_total} naira.\n"
             "Cash wey remain: {net_cash} naira."
         ),
         "english": (
-            "Today you sold {sales_count} things = {sales_total} naira.\n"
+            "{period} you sold {sales_count} things = {sales_total} naira.\n"
             "You spent {expense_total} naira.\n"
             "Cash in hand: {net_cash} naira."
         ),

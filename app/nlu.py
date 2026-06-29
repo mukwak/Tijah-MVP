@@ -34,8 +34,16 @@ ACTIONS you can return:
 6. CHECK_CREDITS - User wants to know who owes them
    {"action": "check_credits", "customer": null}
 
-7. DAILY_SUMMARY - User wants today's summary
-   {"action": "daily_summary"}
+7. DAILY_SUMMARY - User wants an overview/summary for a time period
+   {"action": "daily_summary", "period": "today"}
+   period: "today" (default), "yesterday", "week", "month"
+   Triggers for week: "how was this week", "weekly summary", "this week"
+   Triggers for month: "how was this month", "monthly summary", "this month"
+
+7b. CHECK_SALES - User wants to see individual sales list (what exactly did I sell)
+   {"action": "check_sales", "period": "today"}
+   Triggers: "what did I sell today", "show me my sales", "list my sales", "wetin I sell today", "show me everything I sold"
+   Use this when user asks for DETAILS/LIST of sales, use daily_summary when they ask for overall summary/overview
 
 8. RECORD_EXPENSE - User spent money on something (rent, transport, electricity, etc.)
    {"action": "record_expense", "description": "shop rent", "amount": 15000, "category": "rent"}
@@ -56,9 +64,18 @@ ACTIONS you can return:
 13. CHANGE_LANGUAGE - User wants to switch language
     {"action": "change_language", "language": "english"}
 
-14. UNDO - User wants to cancel/undo/correct the last thing they recorded
+14. CREDIT_REMINDER - User wants to generate a reminder message to send to a customer about their debt
+    {"action": "credit_reminder", "customer": "Mama Joy"}
+    Triggers: "remind Mama Joy", "send reminder to Mama Joy", "message for Mama Joy about her debt", "tell Mama Joy she owes me"
+
+15. UNDO - User wants to cancel/undo/correct the last thing they recorded
     {"action": "undo"}
     Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "I made a mistake", "no no no", "wrong"
+
+15b. EDIT_LAST - User wants to correct/change a detail of the last recorded sale (not delete, just fix)
+    {"action": "edit_last", "field": "quantity", "new_value": 3}
+    field: "quantity", "price"/"unit_price", "total", "product"
+    Triggers: "change that to 3 bags", "it was 5 thousand not 3", "the price was 2 thousand", "no it was 3 bags not 5"
 
 15. CONFIRM_YES - User is confirming something (yes, correct, that's the one, na dem, yes na him/her)
     {"action": "confirm_yes"}
