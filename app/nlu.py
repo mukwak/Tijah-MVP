@@ -34,6 +34,14 @@ ACTIONS you can return:
 6. CHECK_CREDITS - User wants to know who owes them
    {"action": "check_credits", "customer": null}
 
+6b. CREDIT_HISTORY - User wants to see the full payment history for a customer
+    {"action": "credit_history", "customer": "Mama Joy"}
+    Triggers: "show me Mama Joy's history", "when did Mama Joy pay", "Mama Joy payment history", "what did Mama Joy pay"
+
+6c. EDIT_CREDIT - User wants to correct a credit amount (it was recorded wrong)
+    {"action": "edit_credit", "customer": "Mama Joy", "old_amount": 8000, "new_amount": 5000}
+    Triggers: "Mama Joy owes 5 thousand not 8", "change Mama Joy credit to 5 thousand", "the amount for Mama Joy was wrong, it's 5 thousand"
+
 7. DAILY_SUMMARY - User wants an overview/summary for a time period
    {"action": "daily_summary", "period": "today"}
    period: "today" (default), "yesterday", "week", "month"

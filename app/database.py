@@ -99,6 +99,18 @@ async def init_tables(db: aiosqlite.Connection):
             FOREIGN KEY (phone) REFERENCES shops(phone)
         );
 
+        CREATE TABLE IF NOT EXISTS payments (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            phone       TEXT NOT NULL,
+            customer    TEXT NOT NULL,
+            amount      REAL NOT NULL,
+            note        TEXT,
+            created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
+            FOREIGN KEY (phone) REFERENCES shops(phone)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone, customer);
+
         CREATE TABLE IF NOT EXISTS pending_actions (
             phone       TEXT PRIMARY KEY,
             action_data TEXT NOT NULL,

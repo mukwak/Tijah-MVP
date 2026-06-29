@@ -211,6 +211,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "set_price": handlers.handle_set_price,
         "change_language": handlers.handle_change_language,
         "check_sales": handlers.handle_check_sales,
+        "credit_history": handlers.handle_credit_history,
+        "edit_credit": handlers.handle_edit_credit,
         "credit_reminder": handlers.handle_credit_reminder,
         "edit_last": handlers.handle_edit_last,
         "undo": handlers.handle_undo,

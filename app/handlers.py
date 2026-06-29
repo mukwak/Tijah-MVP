@@ -225,6 +225,13 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     if not rows:
         return get_response("customer_not_found", lang, customer=customer)
 
+    # Log the payment in the payments table (audit trail)
+    await db.execute(
+        "INSERT INTO payments (phone, customer, amount) VALUES (?, ?, ?)",
+        (phone, customer, amount),
+    )
+
+    # Apply payment to credits (FIFO)
     remaining_payment = amount
     for row in rows:
         credit_id, credit_amount, already_paid = row[0], row[1], row[2]
@@ -576,6 +583,127 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     return get_response("language_changed", new_lang)
 
 
+async def handle_credit_history(phone: str, data: dict, lang: str) -> str:
+    """Show full credit and payment history for a customer."""
+    db = await get_db()
+    customer = data.get("customer", "")
+
+    if not customer:
+        if lang == "pidgin":
+            return "Who you wan check? Tell me the name."
+        return "Which customer? Tell me the name."
+
+    matched, match_type = await _find_similar_customer(db, phone, customer)
+    if match_type:
+        customer = matched
+
+    # Get all credits
+    cursor = await db.execute(
+        """SELECT amount, paid, note, created_at, settled FROM credits
+           WHERE phone = ? AND LOWER(customer) = LOWER(?)
+           ORDER BY created_at ASC""",
+        (phone, customer),
+    )
+    credits = await cursor.fetchall()
+
+    # Get all payments
+    cursor = await db.execute(
+        """SELECT amount, created_at FROM payments
+           WHERE phone = ? AND LOWER(customer) = LOWER(?)
+           ORDER BY created_at ASC""",
+        (phone, customer),
+    )
+    payments = await cursor.fetchall()
+
+    if not credits and not payments:
+        return get_response("customer_not_found", lang, customer=customer)
+
+    lines = []
+
+    if credits:
+        if lang == "pidgin":
+            lines.append(f"Credit wey {customer} take:")
+        else:
+            lines.append(f"Credits for {customer}:")
+        for c in credits:
+            date = c[3][:10] if c[3] else ""
+            note = f" - {c[2]}" if c[2] else ""
+            status = " (paid)" if c[4] else f" (owing {_fmt(c[0] - c[1])})"
+            lines.append(f"  {_fmt(c[0])} naira{note} [{date}]{status}")
+
+    if payments:
+        lines.append("")
+        if lang == "pidgin":
+            lines.append("Wetin e don pay:")
+        else:
+            lines.append("Payments made:")
+        for p in payments:
+            date = p[1][:10] if p[1] else ""
+            lines.append(f"  {_fmt(p[0])} naira [{date}]")
+
+    # Total outstanding
+    total_owed = sum(c[0] - c[1] for c in credits if not c[4])
+    total_paid = sum(p[0] for p in payments)
+    lines.append("")
+    if lang == "pidgin":
+        lines.append(f"Total wey e don pay: {_fmt(total_paid)} naira")
+        lines.append(f"E still owe: {_fmt(total_owed)} naira")
+    else:
+        lines.append(f"Total paid: {_fmt(total_paid)} naira")
+        lines.append(f"Still owing: {_fmt(total_owed)} naira")
+
+    return "\n".join(lines)
+
+
+async def handle_edit_credit(phone: str, data: dict, lang: str) -> str:
+    """Correct a credit amount for a customer."""
+    db = await get_db()
+    customer = data.get("customer", "")
+    new_amount = float(data.get("new_amount", 0))
+
+    if not customer or not new_amount:
+        if lang == "pidgin":
+            return "Tell me the name and correct amount. Like: \"Mama Joy owes 5 thousand not 8\""
+        return "Tell me the name and correct amount. Like: \"Mama Joy owes 5 thousand not 8\""
+
+    matched, match_type = await _find_similar_customer(db, phone, customer)
+    if match_type:
+        customer = matched
+
+    old_amount = float(data.get("old_amount", 0))
+
+    # If old_amount is given, find that specific credit; otherwise find most recent
+    if old_amount:
+        cursor = await db.execute(
+            """SELECT id, amount FROM credits
+               WHERE phone = ? AND LOWER(customer) = LOWER(?) AND settled = 0 AND amount = ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (phone, customer, old_amount),
+        )
+    else:
+        cursor = await db.execute(
+            """SELECT id, amount FROM credits
+               WHERE phone = ? AND LOWER(customer) = LOWER(?) AND settled = 0
+               ORDER BY created_at DESC LIMIT 1""",
+            (phone, customer),
+        )
+    row = await cursor.fetchone()
+
+    if not row:
+        return get_response("customer_not_found", lang, customer=customer)
+
+    old_amount = row[1]
+    await db.execute(
+        "UPDATE credits SET amount = ?, updated_at = datetime('now', '+1 hours') WHERE id = ?",
+        (new_amount, row[0]),
+    )
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"I don change {customer} credit from {_fmt(old_amount)} to {_fmt(new_amount)} naira."
+    return f"Updated {customer}'s credit from {_fmt(old_amount)} to {_fmt(new_amount)} naira."
+
+
 async def handle_credit_reminder(phone: str, data: dict, lang: str) -> str:
     """Generate a shareable/forwardable credit reminder for a customer."""
     db = await get_db()
@@ -789,6 +917,7 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         ("sales", "product_name", "total", "quantity", "product_id"),
         ("expenses", "description", "amount", None, None),
         ("credits", "customer", "amount", None, None),
+        ("payments", "customer", "amount", None, None),
         ("stock_entries", "product_name", "cost_price", "quantity", "product_id"),
     ]
 
@@ -820,7 +949,7 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     desc = latest[1]
     amount = _fmt(latest[2]) if latest[2] else ""
 
-    # Restore stock if undoing a sale (add back) or stock entry (remove)
+    # Restore related data when undoing
     if latest_table == "sales" and latest_qty_col:
         qty = latest[4]
         pid = latest[5]
@@ -831,13 +960,39 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         pid = latest[5]
         if pid:
             await db.execute("UPDATE products SET stock_qty = MAX(0, stock_qty - ?) WHERE id = ?", (qty, pid))
+    elif latest_table == "payments":
+        # Reverse the payment: reduce paid amounts on credits (LIFO - most recent first)
+        pay_customer = latest[1]
+        pay_amount = latest[2]
+        remaining_refund = pay_amount
+
+        # First unsettled credits that were partially paid
+        cursor = await db.execute(
+            """SELECT id, amount, paid FROM credits
+               WHERE phone = ? AND LOWER(customer) = LOWER(?) AND paid > 0
+               ORDER BY updated_at DESC""",
+            (phone, pay_customer),
+        )
+        credit_rows = await cursor.fetchall()
+        for cr in credit_rows:
+            if remaining_refund <= 0:
+                break
+            cr_id, cr_amount, cr_paid = cr[0], cr[1], cr[2]
+            refund = min(remaining_refund, cr_paid)
+            new_paid = cr_paid - refund
+            settled = 0 if new_paid < cr_amount else 1
+            await db.execute(
+                "UPDATE credits SET paid = ?, settled = ?, updated_at = datetime('now', '+1 hours') WHERE id = ?",
+                (new_paid, settled, cr_id),
+            )
+            remaining_refund -= refund
 
     # Delete the record
     await db.execute(f"DELETE FROM {latest_table} WHERE id = ?", (latest[0],))
     await db.commit()
 
     # Build human-readable description
-    labels = {"sales": "sale", "expenses": "expense", "credits": "credit", "stock_entries": "stock"}
+    labels = {"sales": "sale", "expenses": "expense", "credits": "credit", "payments": "payment", "stock_entries": "stock"}
     label = labels.get(latest_table, "record")
 
     if lang == "pidgin":
