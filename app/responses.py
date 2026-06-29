@@ -4,7 +4,9 @@ Design principles for low-literate users:
 - Keep messages SHORT (2-3 lines max)
 - Use simple, warm language
 - Drip-feed tips (one hint per response, not a wall of instructions)
-- Use emoji as visual anchors sparingly
+- Use emoji as visual anchors (checkmark, warning, money)
+- Echo back what was heard on voice messages
+- Never leave user at a dead end
 """
 
 RESPONSES = {
@@ -21,15 +23,17 @@ RESPONSES = {
             "Try it now - tell me what you sold today!"
         ),
     },
-    "shop_name_saved": {
-        "pidgin": "Nice one! Your shop na \"{name}\". Start telling me wetin you sell!",
-        "english": "Nice! Your shop is \"{name}\". Start telling me what you sell!",
+
+    # === VOICE ECHO ===
+    "voice_echo": {
+        "pidgin": "I hear you say: \"{text}\"\n\n",
+        "english": "I heard: \"{text}\"\n\n",
     },
 
     # === SALES ===
     "sale_recorded": {
-        "pidgin": "{quantity} {unit} {product} = {total} naira. Done!{credit_note}",
-        "english": "{quantity} {unit} {product} = {total} naira. Done!{credit_note}",
+        "pidgin": "Sold! {quantity} {unit} {product} = {total} naira{credit_note}",
+        "english": "Sold! {quantity} {unit} {product} = {total} naira{credit_note}",
     },
     "sale_needs_price": {
         "pidgin": "How much you sell {product}? Just tell me the price.",
@@ -38,8 +42,8 @@ RESPONSES = {
 
     # === STOCK ===
     "stock_added": {
-        "pidgin": "{quantity} {unit} {product} added to your stock.{price_note}",
-        "english": "{quantity} {unit} {product} added to your stock.{price_note}",
+        "pidgin": "Stocked! {quantity} {unit} {product} added.{price_note}",
+        "english": "Stocked! {quantity} {unit} {product} added.{price_note}",
     },
     "stock_check_single": {
         "pidgin": "You get {quantity} {unit} of {product}.",
@@ -50,18 +54,18 @@ RESPONSES = {
         "english": "Your stock:\n{stock_list}",
     },
     "stock_empty": {
-        "pidgin": "You never add any stock yet. When you buy goods, tell me!",
-        "english": "No stock yet. When you buy goods, tell me!",
+        "pidgin": "No stock yet. Try: \"I buy 10 bag of rice\"",
+        "english": "No stock yet. Try: \"I bought 10 bags of rice\"",
     },
     "stock_low": {
-        "pidgin": "Heads up! {product} almost finish - only {quantity} {unit} remain.",
-        "english": "Heads up! {product} almost finished - only {quantity} {unit} left.",
+        "pidgin": "\n\n{product} almost finish! Only {quantity} {unit} remain.",
+        "english": "\n\n{product} almost finished! Only {quantity} {unit} left.",
     },
 
     # === CREDITS ===
     "credit_recorded": {
-        "pidgin": "{customer} owe you {amount} naira.{note} I don save am.",
-        "english": "{customer} owes you {amount} naira.{note} Saved.",
+        "pidgin": "{customer} owe you {amount} naira.{note} Saved!",
+        "english": "{customer} owes you {amount} naira.{note} Saved!",
     },
     "payment_recorded": {
         "pidgin": "{customer} pay {amount} naira. {remaining_note}",
@@ -72,8 +76,8 @@ RESPONSES = {
         "english": "Still owing {remaining} naira.",
     },
     "debt_cleared": {
-        "pidgin": "{customer} don pay everything! No more debt.",
-        "english": "{customer} paid everything! No more debt.",
+        "pidgin": "{customer} don clear! No more debt.",
+        "english": "{customer} all cleared! No more debt.",
     },
     "credits_list": {
         "pidgin": "People wey owe you:\n{credit_list}\n\nTotal: {total} naira",
@@ -84,14 +88,14 @@ RESPONSES = {
         "english": "Nobody owes you money. That's good!",
     },
     "customer_not_found": {
-        "pidgin": "I no see {customer} for your credit book. Check the name again?",
-        "english": "I can't find {customer}. Can you check the name?",
+        "pidgin": "I no see \"{customer}\" for your credit book. Try the name again?",
+        "english": "I can't find \"{customer}\". Can you try the name again?",
     },
 
     # === EXPENSES ===
     "expense_recorded": {
-        "pidgin": "You spend {amount} naira on {description}. Saved.",
-        "english": "You spent {amount} naira on {description}. Saved.",
+        "pidgin": "Spent {amount} naira on {description}. Saved!",
+        "english": "Spent {amount} naira on {description}. Saved!",
     },
     "expenses_list": {
         "pidgin": "You spend {period}:\n{expense_list}\n\nTotal: {total} naira",
@@ -103,25 +107,33 @@ RESPONSES = {
     },
 
     # === DAILY SUMMARY ===
-    "daily_summary": {
+    "daily_summary_simple": {
+        "pidgin": "Today you sell {sales_count} things = {sales_total} naira.",
+        "english": "Today you sold {sales_count} things = {sales_total} naira.",
+    },
+    "daily_summary_with_expenses": {
         "pidgin": (
-            "Today so far:\n\n"
-            "You sell {sales_count} things = {sales_total} naira\n"
-            "You spend {expense_total} naira\n"
-            "People owe you {credit_total} naira\n"
-            "People pay you back {payment_total} naira\n\n"
-            "Cash wey enter: {net_cash} naira\n"
-            "{top_products}"
+            "Today you sell {sales_count} things = {sales_total} naira.\n"
+            "You spend {expense_total} naira.\n"
+            "Cash wey remain: {net_cash} naira."
         ),
         "english": (
-            "Today so far:\n\n"
-            "You sold {sales_count} things = {sales_total} naira\n"
-            "You spent {expense_total} naira\n"
-            "Credit given: {credit_total} naira\n"
-            "Payments received: {payment_total} naira\n\n"
-            "Cash in hand: {net_cash} naira\n"
-            "{top_products}"
+            "Today you sold {sales_count} things = {sales_total} naira.\n"
+            "You spent {expense_total} naira.\n"
+            "Cash in hand: {net_cash} naira."
         ),
+    },
+    "daily_summary_credits_line": {
+        "pidgin": "\nPeople owe you {credit_total} naira.",
+        "english": "\nPeople owe you {credit_total} naira.",
+    },
+    "daily_summary_payments_line": {
+        "pidgin": "\nPeople pay you back {payment_total} naira.",
+        "english": "\nPeople paid you back {payment_total} naira.",
+    },
+    "daily_summary_top": {
+        "pidgin": "\n\nWetin sell pass:\n{top_products}",
+        "english": "\n\nTop sellers:\n{top_products}",
     },
     "no_activity": {
         "pidgin": "Nothing recorded today yet. When you sell something, just tell me!",
@@ -172,8 +184,8 @@ RESPONSES = {
         "english": "Sorry, something went wrong. Try again?",
     },
     "not_understood": {
-        "pidgin": "I no understand. Try tell me again?",
-        "english": "I didn't get that. Can you try again?",
+        "pidgin": "I no understand that one. Try something like:\n\"I sell 5 bag of rice, 2 thousand naira\"",
+        "english": "I didn't get that. Try something like:\n\"I sold 5 bags of rice for 2 thousand naira\"",
     },
 
     # === HINTS (drip-fed after actions) ===

@@ -134,6 +134,11 @@ async def _process_message(message: dict):
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
 
+    # For voice messages, echo back what we heard so user can verify
+    if is_voice:
+        echo = get_response("voice_echo", lang, text=text)
+        response_text = echo + response_text
+
     # Send response - voice reply only if user sent a voice note
     await _send_response(phone, response_text, lang, include_voice=is_voice)
 

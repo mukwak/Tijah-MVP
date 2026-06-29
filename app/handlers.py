@@ -391,7 +391,29 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 
     net_cash = sales_total - credit_total + payment_total - expense_total
 
-    # Top products
+    # Build summary progressively — only show what's relevant
+    if expense_total > 0:
+        result = get_response(
+            "daily_summary_with_expenses", lang,
+            sales_count=sales_count,
+            sales_total=_fmt(sales_total),
+            expense_total=_fmt(expense_total),
+            net_cash=_fmt(net_cash),
+        )
+    else:
+        result = get_response(
+            "daily_summary_simple", lang,
+            sales_count=sales_count,
+            sales_total=_fmt(sales_total),
+        )
+
+    if credit_total > 0:
+        result += get_response("daily_summary_credits_line", lang, credit_total=_fmt(credit_total))
+
+    if payment_total > 0:
+        result += get_response("daily_summary_payments_line", lang, payment_total=_fmt(payment_total))
+
+    # Top products (only if more than 1 product sold)
     cursor = await db.execute(
         """SELECT product_name, SUM(quantity), SUM(total) FROM sales
            WHERE phone = ? AND date(created_at) = date('now')
@@ -399,24 +421,13 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
         (phone,),
     )
     top = await cursor.fetchall()
-    if top:
-        header = "Top items:" if lang == "english" else "Wetin sell pass:"
-        top_products = header + "\n" + "\n".join(
+    if len(top) > 1:
+        top_products = "\n".join(
             f"  {r[0]}: {_fmt(r[1])} sold = {_fmt(r[2])} naira" for r in top
         )
-    else:
-        top_products = ""
+        result += get_response("daily_summary_top", lang, top_products=top_products)
 
-    return get_response(
-        "daily_summary", lang,
-        sales_count=sales_count,
-        sales_total=_fmt(sales_total),
-        expense_total=_fmt(expense_total),
-        credit_total=_fmt(credit_total),
-        payment_total=_fmt(payment_total),
-        net_cash=_fmt(net_cash),
-        top_products=top_products,
-    )
+    return result
 
 
 async def handle_set_price(phone: str, data: dict, lang: str) -> str:
