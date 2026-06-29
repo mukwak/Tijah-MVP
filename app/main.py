@@ -115,6 +115,17 @@ async def _process_message(message: dict):
     lang = shop[0] or "english"
     is_voice = msg_type == "audio"
 
+    # Handle button replies directly (no NLU needed)
+    if msg_type == "interactive":
+        interactive = message.get("interactive", {})
+        if interactive.get("type") == "button_reply":
+            button_id = interactive.get("button_reply", {}).get("id", "")
+            if button_id in ("confirm_yes", "confirm_no"):
+                intent = {"action": button_id}
+                response_text = await _route_intent(phone, intent, lang)
+                await _send_response(phone, response_text, lang)
+                return
+
     # Extract text from message
     text = await _extract_text(message, msg_type)
 
@@ -133,6 +144,18 @@ async def _process_message(message: dict):
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
+
+    # If response is a confirmation prompt, send as interactive buttons
+    if any(phrase in response_text for phrase in [
+        'Say "yes"', 'Say "no"', "same person", "na the same person"
+    ]):
+        yes_label = "Yes, same person" if lang == "english" else "Yes, na dem"
+        no_label = "No, new person" if lang == "english" else "No, another person"
+        await send_interactive_buttons(phone, response_text, [
+            {"id": "confirm_yes", "title": yes_label[:20]},
+            {"id": "confirm_no", "title": no_label[:20]},
+        ])
+        return
 
     # For voice messages, echo back what we heard so user can verify
     if is_voice:
@@ -189,6 +212,9 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "change_language": handlers.handle_change_language,
         "undo": handlers.handle_undo,
         "multi_sale": handlers.handle_multi_sale,
+        "confirm_yes": handlers.handle_confirm_yes,
+        "confirm_no": handlers.handle_confirm_no,
+        "rename_customer": handlers.handle_rename_customer,
     }
 
     handler = handler_map.get(action)

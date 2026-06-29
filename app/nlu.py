@@ -60,7 +60,17 @@ ACTIONS you can return:
     {"action": "undo"}
     Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "I made a mistake", "no no no", "wrong"
 
-15. MULTI_SALE - User mentions selling MULTIPLE different products in one message
+15. CONFIRM_YES - User is confirming something (yes, correct, that's the one, na dem, yes na him/her)
+    {"action": "confirm_yes"}
+
+16. CONFIRM_NO - User is rejecting/saying no (no, wrong person, not that one, different person, no na another person)
+    {"action": "confirm_no"}
+
+17. RENAME_CUSTOMER - User wants to change/fix a customer's name in the records
+    {"action": "rename_customer", "old_name": "Mama Inkechi", "new_name": "Mama Nkechi"}
+    Triggers: "change X to Y", "rename X to Y", "X name is actually Y", "correct X to Y"
+
+18. MULTI_SALE - User mentions selling MULTIPLE different products in one message
     {"action": "multi_sale", "items": [
       {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
       {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000}

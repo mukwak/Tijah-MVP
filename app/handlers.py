@@ -1,4 +1,5 @@
 """Business logic handlers for each intent."""
+import json
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.responses import get_response
@@ -161,6 +162,19 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
     amount = float(data.get("amount", 0))
     note = data.get("note", "")
 
+    # Check for similar existing customer
+    matched_name, match_type = await _find_similar_customer(db, phone, customer)
+
+    if match_type == "fuzzy":
+        # Save pending and ask for confirmation
+        data["_confirmed_customer"] = matched_name
+        data["_original_customer"] = customer
+        await _save_pending(db, phone, {"action": "record_credit", "data": data, "lang": lang})
+        return get_response("confirm_customer", lang, original=customer, matched=matched_name)
+
+    if match_type == "exact":
+        customer = matched_name
+
     await _add_credit(db, phone, customer, amount, note)
     await db.commit()
 
@@ -183,8 +197,19 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
 async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     customer = data.get("customer", "Customer")
-    customer = await _normalize_customer(db, phone, customer)
     amount = float(data.get("amount", 0))
+
+    # Check for similar existing customer
+    matched_name, match_type = await _find_similar_customer(db, phone, customer)
+
+    if match_type == "fuzzy":
+        data["_confirmed_customer"] = matched_name
+        data["_original_customer"] = customer
+        await _save_pending(db, phone, {"action": "record_payment", "data": data, "lang": lang})
+        return get_response("confirm_customer", lang, original=customer, matched=matched_name)
+
+    if match_type == "exact":
+        customer = matched_name
 
     # Find unsettled credits for this customer
     cursor = await db.execute(
@@ -486,6 +511,88 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     return get_response("language_changed", new_lang)
 
 
+async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
+    """User confirmed the fuzzy customer match."""
+    db = await get_db()
+    pending = await _get_pending(db, phone)
+    if not pending:
+        if lang == "pidgin":
+            return "Nothing to confirm. Just tell me wetin you wan do."
+        return "Nothing to confirm. Just tell me what you need."
+
+    # Use the confirmed (matched) customer name
+    pending_data = pending["data"]
+    pending_data["customer"] = pending_data.pop("_confirmed_customer")
+    pending_data.pop("_original_customer", None)
+    pending_lang = pending.get("lang", lang)
+
+    if pending["action"] == "record_credit":
+        return await handle_record_credit(phone, pending_data, pending_lang)
+    elif pending["action"] == "record_payment":
+        return await handle_record_payment(phone, pending_data, pending_lang)
+
+    return get_response("error", lang)
+
+
+async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
+    """User rejected the fuzzy match — use original name as new customer."""
+    db = await get_db()
+    pending = await _get_pending(db, phone)
+    if not pending:
+        if lang == "pidgin":
+            return "Nothing to confirm. Just tell me wetin you wan do."
+        return "Nothing to confirm. Just tell me what you need."
+
+    # Use the original (new) customer name
+    pending_data = pending["data"]
+    pending_data["customer"] = pending_data.pop("_original_customer")
+    pending_data.pop("_confirmed_customer", None)
+    pending_lang = pending.get("lang", lang)
+
+    if pending["action"] == "record_credit":
+        return await handle_record_credit(phone, pending_data, pending_lang)
+    elif pending["action"] == "record_payment":
+        return await handle_record_payment(phone, pending_data, pending_lang)
+
+    return get_response("error", lang)
+
+
+async def handle_rename_customer(phone: str, data: dict, lang: str) -> str:
+    """Rename a customer across all credit records."""
+    db = await get_db()
+    old_name = data.get("old_name", "")
+    new_name = data.get("new_name", "")
+
+    if not old_name or not new_name:
+        if lang == "pidgin":
+            return "Tell me like: \"Change Mama Inkechi to Mama Nkechi\""
+        return "Tell me like: \"Change Mama Inkechi to Mama Nkechi\""
+
+    # Find the existing customer (fuzzy match on old name)
+    matched, match_type = await _find_similar_customer(db, phone, old_name)
+    if match_type:
+        old_name = matched
+
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+        (phone, old_name),
+    )
+    count = (await cursor.fetchone())[0]
+
+    if count == 0:
+        return get_response("customer_not_found", lang, customer=old_name)
+
+    await db.execute(
+        "UPDATE credits SET customer = ? WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+        (new_name, phone, old_name),
+    )
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"I don change \"{old_name}\" to \"{new_name}\" for all {count} record(s)."
+    return f"Changed \"{old_name}\" to \"{new_name}\" across {count} record(s)."
+
+
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
     """Undo the last recorded action (sale, expense, credit, or stock entry)."""
     db = await get_db()
@@ -634,9 +741,13 @@ async def _get_or_create_product(db, phone, name, unit="piece", sell_price=0, co
     return cursor.lastrowid
 
 
-async def _normalize_customer(db, phone, name):
-    """Find existing customer name by fuzzy match to prevent fragmentation.
-    'Mama Nkechi' matches 'Mama Inkechi', 'mama nkechi', etc."""
+async def _find_similar_customer(db, phone, name):
+    """Find existing customer name by fuzzy match.
+    Returns (matched_name, match_type) where match_type is:
+    - 'exact': case-insensitive exact match (safe to auto-use)
+    - 'fuzzy': similar name found (needs confirmation)
+    - None: no match found (new customer)
+    """
     cursor = await db.execute(
         "SELECT DISTINCT customer FROM credits WHERE phone = ?", (phone,)
     )
@@ -646,25 +757,51 @@ async def _normalize_customer(db, phone, name):
     for row in rows:
         existing = row[0]
         existing_lower = existing.lower().replace(" ", "")
-        # Exact match (case-insensitive)
+        # Exact match (case-insensitive) — safe to auto-use
         if name_lower == existing_lower:
-            return existing
-        # One contains the other (handles "Mama Nkechi" vs "Nkechi")
+            return existing, "exact"
+
+    # Second pass for fuzzy matches — needs confirmation
+    for row in rows:
+        existing = row[0]
+        existing_lower = existing.lower().replace(" ", "")
+        # One contains the other
         if name_lower in existing_lower or existing_lower in name_lower:
-            return existing
-        # High character overlap (handles transcription variations)
+            return existing, "fuzzy"
+        # High character overlap
         if len(name_lower) >= 4 and len(existing_lower) >= 4:
             shorter = min(name_lower, existing_lower, key=len)
             longer = max(name_lower, existing_lower, key=len)
             matches = sum(1 for c in shorter if c in longer)
             if matches / len(shorter) >= 0.8:
-                return existing
+                return existing, "fuzzy"
 
-    return name
+    return name, None
+
+
+async def _save_pending(db, phone, action_data):
+    """Save a pending action for confirmation."""
+    await db.execute(
+        "INSERT OR REPLACE INTO pending_actions (phone, action_data) VALUES (?, ?)",
+        (phone, json.dumps(action_data)),
+    )
+    await db.commit()
+
+
+async def _get_pending(db, phone):
+    """Get and clear pending action."""
+    cursor = await db.execute(
+        "SELECT action_data FROM pending_actions WHERE phone = ?", (phone,)
+    )
+    row = await cursor.fetchone()
+    if row:
+        await db.execute("DELETE FROM pending_actions WHERE phone = ?", (phone,))
+        await db.commit()
+        return json.loads(row[0])
+    return None
 
 
 async def _add_credit(db, phone, customer, amount, note=""):
-    customer = await _normalize_customer(db, phone, customer)
     await db.execute(
         """INSERT INTO credits (phone, customer, amount, note)
            VALUES (?, ?, ?, ?)""",

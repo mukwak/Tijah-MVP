@@ -96,6 +96,13 @@ async def init_tables(db: aiosqlite.Connection):
             FOREIGN KEY (phone) REFERENCES shops(phone)
         );
 
+        CREATE TABLE IF NOT EXISTS pending_actions (
+            phone       TEXT PRIMARY KEY,
+            action_data TEXT NOT NULL,
+            created_at  TEXT DEFAULT (datetime('now')),
+            FOREIGN KEY (phone) REFERENCES shops(phone)
+        );
+
         CREATE INDEX IF NOT EXISTS idx_sales_phone_date ON sales(phone, created_at);
         CREATE INDEX IF NOT EXISTS idx_credits_phone ON credits(phone, customer, settled);
         CREATE INDEX IF NOT EXISTS idx_products_phone ON products(phone);

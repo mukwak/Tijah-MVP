@@ -188,6 +188,12 @@ RESPONSES = {
         "english": "I didn't get that. Try something like:\n\"I sold 5 bags of rice for 2 thousand naira\"",
     },
 
+    # === CONFIRMATION ===
+    "confirm_customer": {
+        "pidgin": "You mean \"{matched}\"? I get somebody wey name like that already.\n\nSay \"yes\" if na the same person, or \"no\" if \"{original}\" na new person.",
+        "english": "Did you mean \"{matched}\"? I have someone with a similar name.\n\nSay \"yes\" if it's the same person, or \"no\" if \"{original}\" is a new person.",
+    },
+
     # === HINTS (drip-fed after actions) ===
     "hint_after_sale": {
         "pidgin": "\n\nYou fit also tell me who owe you money.",

@@ -9,7 +9,8 @@
       "Bash(DB_PATH=test_tijah.db venv/Scripts/python -c \":*)",
       "Bash(python -c \"from app.config import *; print\\(''Gemini key:'', bool\\(WHATSAPP_TOKEN\\)\\); print\\(''WhatsApp:'', bool\\(WHATSAPP_PHONE_NUMBER_ID\\)\\); print\\(''OpenAI:'', bool\\(OPENAI_API_KEY\\)\\)\")",
       "Bash(python -c \":*)",
-      "Bash(pip install:*)"
+      "Bash(pip install:*)",
+      "WebFetch(domain:tijah-mvp.onrender.com)"
     ]
   }
 }
