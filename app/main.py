@@ -117,7 +117,7 @@ async def _process_message(message: dict):
 
     if not shop:
         # New user - create shop, send welcome, and process their message
-        await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone, 1))
+        await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone,))
         await db.commit()
         is_voice = msg_type == "audio"
         await _send_response(phone, get_response("welcome", "english"), "english", include_voice=is_voice)
