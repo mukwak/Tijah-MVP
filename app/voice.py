@@ -1,10 +1,13 @@
 """Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (edge-tts)."""
+import logging
 import tempfile
 import os
 import hashlib
 import edge_tts
 from openai import AsyncOpenAI
 from app.config import OPENAI_API_KEY, AUDIO_CACHE_DIR
+
+log = logging.getLogger("tijah")
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
@@ -48,14 +51,30 @@ async def text_to_speech(text: str, language: str = "pidgin") -> str:
     output_path = os.path.join(AUDIO_CACHE_DIR, f"{text_hash}.mp3")
 
     if os.path.exists(output_path):
-        return output_path
+        file_size = os.path.getsize(output_path)
+        log.info(f"TTS cache hit: {output_path} ({file_size} bytes)")
+        if file_size > 0:
+            return output_path
+        # Cached file is empty/corrupt — regenerate
+        os.remove(output_path)
 
     voice = VOICES.get(language, VOICES["pidgin"])
+    log.info(f"TTS generating: voice={voice}, text_len={len(text)}")
+
+    # Truncate very long text to avoid edge-tts timeouts
+    tts_text = text[:500] if len(text) > 500 else text
 
     communicate = edge_tts.Communicate(
-        text=text,
+        text=tts_text,
         voice=voice,
         rate="-10%",  # Slightly slower for clarity
     )
     await communicate.save(output_path)
+
+    file_size = os.path.getsize(output_path)
+    log.info(f"TTS saved: {output_path} ({file_size} bytes)")
+    if file_size == 0:
+        os.remove(output_path)
+        raise RuntimeError("edge-tts produced empty audio file")
+
     return output_path

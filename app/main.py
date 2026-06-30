@@ -15,6 +15,7 @@ from app.database import get_db, close_db
 from app.whatsapp import send_text, send_audio, download_media, send_interactive_buttons
 from app.voice import transcribe, text_to_speech
 from app.nlu import parse_intent
+from app.preclassifier import preclassify
 from app.responses import get_response
 from app import handlers
 
@@ -68,7 +69,17 @@ async def handle_webhook(request: Request):
                 messages = value.get("messages", [])
 
                 for message in messages:
-                    await _process_message(message)
+                    try:
+                        await _process_message(message)
+                    except Exception as e:
+                        log.error(f"Message processing error: {e}\n{traceback.format_exc()}")
+                        # Guaranteed error response — never leave user hanging
+                        phone = message.get("from", "")
+                        if phone:
+                            try:
+                                await send_text(phone, get_response("error", "english"))
+                            except Exception:
+                                log.error("Failed to send error response")
     except Exception as e:
         log.error(f"Webhook error: {e}\n{traceback.format_exc()}")
 
@@ -135,9 +146,14 @@ async def _process_message(message: dict):
 
     log.info(f"User text: {text}")
 
-    # Always parse intent first — listen to what the user is saying
-    intent = await parse_intent(text, lang)
-    log.info(f"Intent: {intent}")
+    # Fast pre-classifier — skip Gemini for simple intents
+    intent = preclassify(text)
+    if intent:
+        log.info(f"Pre-classified: {intent}")
+    else:
+        # Full NLU parse via Gemini
+        intent = await parse_intent(text, lang)
+        log.info(f"Intent: {intent}")
 
     # Use detected language from NLU, fall back to stored preference
     lang = intent.pop("detected_language", lang)

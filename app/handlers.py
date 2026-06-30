@@ -39,10 +39,13 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     customer = data.get("customer")
     is_credit = data.get("is_credit", False)
 
-    if total and not unit_price:
-        unit_price = total / quantity
-    elif unit_price and not total:
+    # Always recalculate — never trust LLM math
+    if unit_price and quantity:
         total = unit_price * quantity
+    elif total and quantity and not unit_price:
+        unit_price = total / quantity
+    elif total and not unit_price:
+        unit_price = total
 
     # If no price given, try to use stored sell_price
     if not total and not unit_price:
@@ -1018,12 +1021,10 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
         # Extract just the first line (the confirmation)
         first_line = result.split("\n")[0]
         results.append(first_line)
-        total = float(item.get("total", 0))
-        if not total:
-            qty = float(item.get("quantity", 1))
-            price = float(item.get("unit_price", 0))
-            total = qty * price
-        grand_total += total
+        # Recalculate — don't trust LLM total
+        qty = float(item.get("quantity", 1))
+        price = float(item.get("unit_price", 0))
+        grand_total += qty * price
 
     summary = "\n".join(results)
     if lang == "pidgin":
