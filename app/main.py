@@ -116,14 +116,13 @@ async def _process_message(message: dict):
     shop = await cursor.fetchone()
 
     if not shop:
-        # New user - create shop, send welcome, and process their message
+        # New user - create shop and continue processing their message
         await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone,))
         await db.commit()
-        is_voice = msg_type == "audio"
-        await _send_response(phone, get_response("welcome", "english"), "english", include_voice=is_voice)
-        return
+        lang = "english"
+    else:
+        lang = shop[0] or "english"
 
-    lang = shop[0] or "english"
     is_voice = msg_type == "audio"
 
     # Handle button replies directly (no NLU needed)
@@ -258,6 +257,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
 
 async def _send_response(phone: str, text: str, lang: str, include_voice: bool = False):
     """Send response - always text, voice note only if user sent a voice message."""
+    log.info(f"Sending response to {phone}: include_voice={include_voice}, text_len={len(text)}")
     await send_text(phone, text)
 
     if include_voice:
