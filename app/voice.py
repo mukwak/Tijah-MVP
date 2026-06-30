@@ -1,22 +1,14 @@
-"""Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (edge-tts)."""
+"""Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (OpenAI TTS)."""
 import logging
 import tempfile
 import os
 import hashlib
-import edge_tts
 from openai import AsyncOpenAI
 from app.config import OPENAI_API_KEY, AUDIO_CACHE_DIR
 
 log = logging.getLogger("tijah")
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
-
-# Nigerian-friendly voice options
-VOICES = {
-    "en": "en-NG-AbeoNeural",       # Nigerian English male
-    "en_f": "en-NG-EzinneNeural",    # Nigerian English female
-    "pidgin": "en-NG-AbeoNeural",    # Use Nigerian English voice for Pidgin too
-}
 
 
 async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
@@ -43,7 +35,7 @@ async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
 
 
 async def text_to_speech(text: str, language: str = "pidgin") -> str:
-    """Convert text to speech using edge-tts (free). Returns path to mp3 file."""
+    """Convert text to speech using OpenAI TTS. Returns path to mp3 file."""
     os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
     # Cache by text hash to avoid regenerating
@@ -55,26 +47,26 @@ async def text_to_speech(text: str, language: str = "pidgin") -> str:
         log.info(f"TTS cache hit: {output_path} ({file_size} bytes)")
         if file_size > 0:
             return output_path
-        # Cached file is empty/corrupt — regenerate
         os.remove(output_path)
 
-    voice = VOICES.get(language, VOICES["pidgin"])
-    log.info(f"TTS generating: voice={voice}, text_len={len(text)}")
-
-    # Truncate very long text to avoid edge-tts timeouts
+    # Truncate very long text to keep costs down
     tts_text = text[:500] if len(text) > 500 else text
+    log.info(f"TTS generating: text_len={len(tts_text)}")
 
-    communicate = edge_tts.Communicate(
-        text=tts_text,
-        voice=voice,
-        rate="-10%",  # Slightly slower for clarity
+    response = await openai_client.audio.speech.create(
+        model="tts-1",
+        voice="onyx",  # Deep, warm male voice — good for Nigerian context
+        input=tts_text,
+        response_format="mp3",
+        speed=0.95,  # Slightly slower for clarity
     )
-    await communicate.save(output_path)
+
+    response.stream_to_file(output_path)
 
     file_size = os.path.getsize(output_path)
     log.info(f"TTS saved: {output_path} ({file_size} bytes)")
     if file_size == 0:
         os.remove(output_path)
-        raise RuntimeError("edge-tts produced empty audio file")
+        raise RuntimeError("OpenAI TTS produced empty audio file")
 
     return output_path
