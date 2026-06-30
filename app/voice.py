@@ -1,5 +1,6 @@
 """Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (OpenAI TTS)."""
 import logging
+import re
 import tempfile
 import os
 import hashlib
@@ -34,12 +35,59 @@ async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
         os.unlink(tmp_path)
 
 
+def _make_speakable(text: str) -> str:
+    """Convert formatted text into natural conversational speech."""
+    s = text
+
+    # Strip the "I heard: ..." echo — don't repeat what user said back in voice
+    s = re.sub(r'I hear(?:d)?(?: you say)?:?\s*"[^"]*"\s*', '', s)
+
+    # "Sold! 3 bag rice = 60,000 naira" → "Done! 3 bag rice, 60 thousand naira"
+    s = s.replace(" = ", ", ")
+    s = s.replace("Sold!", "Done!")
+    s = s.replace("Stocked!", "Got it!")
+
+    # Remove list indentation and bullet formatting
+    s = re.sub(r'\n\s{2,}', '\n', s)
+
+    # Convert formatted numbers: "60,000" → "60 thousand", "1,500,000" → "1.5 million"
+    def _speak_number(m: re.Match) -> str:
+        raw = m.group(0).replace(",", "")
+        n = float(raw)
+        if n >= 1_000_000:
+            val = n / 1_000_000
+            return f"{val:g} million"
+        if n >= 1_000:
+            val = n / 1_000
+            return f"{val:g} thousand"
+        return raw
+
+    s = re.sub(r'\d{1,3}(?:,\d{3})+', _speak_number, s)
+
+    # "naira" after number is fine, but clean up double spaces
+    s = re.sub(r'  +', ' ', s)
+
+    # Replace newlines with pauses (periods/commas)
+    s = re.sub(r'\n{2,}', '. ', s)
+    s = re.sub(r'\n', ', ', s)
+
+    # Clean up awkward punctuation from replacements
+    s = re.sub(r':\s*,', ':', s)  # "owing you:, " → "owing you: "
+    s = re.sub(r'[.,]\s*[.,]', '.', s)
+    s = re.sub(r'\s+\.', '.', s)
+
+    return s.strip()
+
+
 async def text_to_speech(text: str, language: str = "pidgin") -> str:
     """Convert text to speech using OpenAI TTS. Returns path to mp3 file."""
     os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
+    # Convert to conversational speech
+    speech_text = _make_speakable(text)
+
     # Cache by text hash to avoid regenerating
-    text_hash = hashlib.md5(text.encode()).hexdigest()[:12]
+    text_hash = hashlib.md5(speech_text.encode()).hexdigest()[:12]
     output_path = os.path.join(AUDIO_CACHE_DIR, f"{text_hash}.mp3")
 
     if os.path.exists(output_path):
@@ -50,7 +98,7 @@ async def text_to_speech(text: str, language: str = "pidgin") -> str:
         os.remove(output_path)
 
     # Truncate very long text to keep costs down
-    tts_text = text[:500] if len(text) > 500 else text
+    tts_text = speech_text[:500] if len(speech_text) > 500 else speech_text
     log.info(f"TTS generating: text_len={len(tts_text)}")
 
     response = await openai_client.audio.speech.create(
