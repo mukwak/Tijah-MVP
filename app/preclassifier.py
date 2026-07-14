@@ -25,6 +25,10 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(help|what can you do|how (does|do) (this|it) work|menu|commands?)$",
      {"action": "help"}),
 
+    # Shop report link
+    (r"^(my report|report|shop report|send (me )?my report|show (me )?my report|give me my report|my data)$",
+     {"action": "get_report"}),
+
     # Language switching
     (r"^(speak|switch to|change to|use) (pidgin|english)$",
      None),  # handled specially below

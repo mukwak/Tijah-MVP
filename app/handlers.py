@@ -592,6 +592,16 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     return get_response("language_changed", new_lang)
 
 
+async def handle_get_report(phone: str, data: dict, lang: str) -> str:
+    """Send the shop's private shareable report link."""
+    from app.config import BASE_URL
+    from app.report import get_or_create_report_token
+
+    token = await get_or_create_report_token(phone)
+    url = f"{BASE_URL.rstrip('/')}/report/{token}"
+    return get_response("report_link", lang, url=url)
+
+
 async def handle_credit_history(phone: str, data: dict, lang: str) -> str:
     """Show full credit and payment history for a customer."""
     db = await get_db()

@@ -101,6 +101,10 @@ ACTIONS you can return:
     ], "when": "today"}
     IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
 
+19. GET_REPORT - User wants a link to see/review all their shop records
+    {"action": "get_report"}
+    Triggers: "send me my report", "I want to see my records", "show me all my data", "shop report", "make I see everything"
+
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
 - "k" or "thousand" = multiply by 1000

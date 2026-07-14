@@ -10,7 +10,7 @@ import hmac
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, HTMLResponse
 
 from app.config import WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, VERIFY_WEBHOOK_SIGNATURE
 from app.database import get_db, close_db, try_mark_message_processed
@@ -19,6 +19,7 @@ from app.voice import transcribe, text_to_speech
 from app.nlu import parse_intent
 from app.preclassifier import preclassify
 from app.responses import get_response
+from app.report import get_phone_by_token, render_report_html
 from app import handlers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -92,6 +93,15 @@ async def handle_webhook(request: Request):
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "tijah"}
+
+
+@app.get("/report/{token}")
+async def shop_report(token: str):
+    """Shareable read-only report page for a shop, keyed by unguessable token."""
+    phone = await get_phone_by_token(token)
+    if not phone:
+        return HTMLResponse(content="<h3>Report not found</h3>", status_code=404)
+    return HTMLResponse(content=await render_report_html(phone))
 
 
 async def _process_message(message: dict):
@@ -233,6 +243,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "confirm_yes": handlers.handle_confirm_yes,
         "confirm_no": handlers.handle_confirm_no,
         "rename_customer": handlers.handle_rename_customer,
+        "get_report": handlers.handle_get_report,
     }
 
     handler = handler_map.get(action)

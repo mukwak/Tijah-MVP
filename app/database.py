@@ -169,6 +169,8 @@ def _convert_placeholders(sql: str) -> str:
 def _translate_sqlite_query(sql: str) -> str:
     replacements = {
         "MAX(0, stock_qty - ?)": "GREATEST(0, stock_qty - ?)",
+        "INSERT OR IGNORE INTO report_tokens (phone, token) VALUES (?, ?)":
+            "INSERT INTO report_tokens (phone, token) VALUES (?, ?) ON CONFLICT (phone) DO NOTHING",
         "INSERT OR REPLACE INTO pending_actions (phone, action_data) VALUES (?, ?)":
             "INSERT INTO pending_actions (phone, action_data) VALUES (?, ?) "
             "ON CONFLICT (phone) DO UPDATE SET action_data = EXCLUDED.action_data, "
@@ -287,6 +289,13 @@ CREATE TABLE IF NOT EXISTS processed_messages (
     created_at  TEXT DEFAULT (datetime('now', '+1 hours'))
 );
 
+CREATE TABLE IF NOT EXISTS report_tokens (
+    phone       TEXT PRIMARY KEY,
+    token       TEXT NOT NULL UNIQUE,
+    created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
+    FOREIGN KEY (phone) REFERENCES shops(phone)
+);
+
 CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone, customer);
 CREATE INDEX IF NOT EXISTS idx_sales_phone_date ON sales(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_credits_phone ON credits(phone, customer, settled);
@@ -379,6 +388,12 @@ CREATE TABLE IF NOT EXISTS pending_actions (
 
 CREATE TABLE IF NOT EXISTS processed_messages (
     message_id  TEXT PRIMARY KEY,
+    created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS report_tokens (
+    phone       TEXT PRIMARY KEY REFERENCES shops(phone),
+    token       TEXT NOT NULL UNIQUE,
     created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
 );
 

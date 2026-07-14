@@ -154,6 +154,20 @@ RESPONSES = {
         "english": "{product} price set to {price} naira per {unit}.",
     },
 
+    # === REPORT ===
+    "report_link": {
+        "pidgin": (
+            "Here be your shop report:\n{url}\n\n"
+            "E get all your sales, stock, credit and expenses. "
+            "You fit open am anytime. No give the link to person wey you no trust."
+        ),
+        "english": (
+            "Here is your shop report:\n{url}\n\n"
+            "It shows all your sales, stock, credits and expenses. "
+            "You can open it anytime. Only share the link with people you trust."
+        ),
+    },
+
     # === HELP ===
     "help": {
         "pidgin": (
