@@ -61,6 +61,14 @@ RESPONSES = {
         "pidgin": "\n\n{product} almost finish! Only {quantity} {unit} remain.",
         "english": "\n\n{product} almost finished! Only {quantity} {unit} left.",
     },
+    "stock_finished": {
+        "pidgin": "\n\n{product} don finish for your record.",
+        "english": "\n\n{product} is now finished in your records.",
+    },
+    "stock_oversold": {
+        "pidgin": "\n\nCheck your stock: your record show you short by {quantity} {unit} of {product}.",
+        "english": "\n\nCheck your stock: your records are short by {quantity} {unit} of {product}.",
+    },
 
     # === CREDITS ===
     "credit_recorded": {

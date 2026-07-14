@@ -59,9 +59,9 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     # Find or create product
     product_id = await _get_or_create_product(db, phone, product, unit, unit_price)
 
-    # Deduct stock
+    # Deduct stock. Allow negative stock so oversells are visible instead of hidden.
     await db.execute(
-        "UPDATE products SET stock_qty = MAX(0, stock_qty - ?) WHERE id = ?",
+        "UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?",
         (quantity, product_id),
     )
 
@@ -99,7 +99,13 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     )
     row = await cursor.fetchone()
     low_stock_msg = ""
-    if row and row[0] <= 3 and row[0] > 0:
+    if row and row[0] < 0:
+        low_stock_msg = "\n" + get_response(
+            "stock_oversold", lang, product=product, quantity=_fmt(abs(row[0])), unit=row[1]
+        )
+    elif row and row[0] == 0:
+        low_stock_msg = "\n" + get_response("stock_finished", lang, product=product)
+    elif row and row[0] <= 3:
         low_stock_msg = "\n" + get_response("stock_low", lang, product=product, quantity=_fmt(row[0]), unit=row[1])
 
     result = get_response(
@@ -167,8 +173,10 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
     amount = float(data.get("amount", 0))
     note = data.get("note", "")
 
-    # Check for similar existing customer
-    matched_name, match_type = await _find_similar_customer(db, phone, customer)
+    # Check for similar existing customer unless a pending confirmation already resolved it.
+    matched_name, match_type = (customer, None)
+    if not data.get("_skip_customer_match"):
+        matched_name, match_type = await _find_similar_customer(db, phone, customer)
 
     if match_type == "fuzzy":
         # Save pending and ask for confirmation
@@ -204,8 +212,10 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     customer = data.get("customer", "Customer")
     amount = float(data.get("amount", 0))
 
-    # Check for similar existing customer
-    matched_name, match_type = await _find_similar_customer(db, phone, customer)
+    # Check for similar existing customer unless a pending confirmation already resolved it.
+    matched_name, match_type = (customer, None)
+    if not data.get("_skip_customer_match"):
+        matched_name, match_type = await _find_similar_customer(db, phone, customer)
 
     if match_type == "fuzzy":
         data["_confirmed_customer"] = matched_name
@@ -465,19 +475,15 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 
     if period == "today":
         date_filter = "date(created_at) = date('now', '+1 hours')"
-        update_filter = "date(updated_at) = date('now', '+1 hours')"
         period_label = "Today" if lang == "english" else "Today"
     elif period == "yesterday":
         date_filter = "date(created_at) = date('now', '+1 hours', '-1 day')"
-        update_filter = "date(updated_at) = date('now', '+1 hours', '-1 day')"
         period_label = "Yesterday" if lang == "english" else "Yesterday"
     elif period == "week":
         date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
-        update_filter = "updated_at >= datetime('now', '+1 hours', '-7 days')"
         period_label = "This week" if lang == "english" else "This week"
     else:
         date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
-        update_filter = "updated_at >= datetime('now', '+1 hours', '-30 days')"
         period_label = "This month" if lang == "english" else "This month"
 
     # Sales
@@ -504,12 +510,12 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 
     # Payments received
     cursor = await db.execute(
-        f"SELECT COALESCE(SUM(paid), 0) FROM credits WHERE phone = ? AND {update_filter} AND paid > 0",
+        f"SELECT COALESCE(SUM(amount), 0) FROM payments WHERE phone = ? AND {date_filter}",
         (phone,),
     )
     payment_total = (await cursor.fetchone())[0]
 
-    if sales_count == 0 and expense_total == 0 and credit_total == 0:
+    if sales_count == 0 and expense_total == 0 and credit_total == 0 and payment_total == 0:
         return get_response("no_activity", lang)
 
     net_cash = sales_total - credit_total + payment_total - expense_total
@@ -789,6 +795,7 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     pending_data = pending["data"]
     pending_data["customer"] = pending_data.pop("_confirmed_customer")
     pending_data.pop("_original_customer", None)
+    pending_data["_skip_customer_match"] = True
     pending_lang = pending.get("lang", lang)
 
     if pending["action"] == "record_credit":
@@ -812,6 +819,7 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     pending_data = pending["data"]
     pending_data["customer"] = pending_data.pop("_original_customer")
     pending_data.pop("_confirmed_customer", None)
+    pending_data["_skip_customer_match"] = True
     pending_lang = pending.get("lang", lang)
 
     if pending["action"] == "record_credit":
@@ -962,7 +970,7 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         qty = latest[4]
         pid = latest[5]
         if pid:
-            await db.execute("UPDATE products SET stock_qty = MAX(0, stock_qty - ?) WHERE id = ?", (qty, pid))
+            await db.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", (qty, pid))
     elif latest_table == "payments":
         # Reverse the payment: reduce paid amounts on credits (LIFO - most recent first)
         pay_customer = latest[1]

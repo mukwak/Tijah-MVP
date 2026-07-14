@@ -5,13 +5,15 @@ Main FastAPI application with WhatsApp webhook handler.
 import logging
 import os
 import traceback
+import hashlib
+import hmac
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import PlainTextResponse
 
-from app.config import WHATSAPP_VERIFY_TOKEN
-from app.database import get_db, close_db
+from app.config import WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, VERIFY_WEBHOOK_SIGNATURE
+from app.database import get_db, close_db, try_mark_message_processed
 from app.whatsapp import send_text, send_audio, download_media, send_interactive_buttons
 from app.voice import transcribe, text_to_speech
 from app.nlu import parse_intent
@@ -21,11 +23,6 @@ from app import handlers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("tijah")
-
-# Track processed message IDs to avoid duplicates
-_processed_messages = set()
-MAX_PROCESSED_CACHE = 10000
-
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -58,6 +55,11 @@ async def verify_webhook(request: Request):
 @app.post("/webhook")
 async def handle_webhook(request: Request):
     """Handle incoming WhatsApp messages."""
+    raw_body = await request.body()
+    if not _verify_webhook_signature(request, raw_body):
+        log.warning("Rejected webhook with invalid or missing Meta signature")
+        return PlainTextResponse(content="Forbidden", status_code=403)
+
     body = await request.json()
 
     try:
@@ -96,13 +98,9 @@ async def _process_message(message: dict):
     """Process a single incoming WhatsApp message."""
     msg_id = message.get("id", "")
 
-    # Deduplicate
-    if msg_id in _processed_messages:
+    # Persistently deduplicate WhatsApp retries and worker restarts.
+    if not await try_mark_message_processed(msg_id):
         return
-    _processed_messages.add(msg_id)
-    if len(_processed_messages) > MAX_PROCESSED_CACHE:
-        # Remove oldest entries (set doesn't preserve order, but this prevents unbounded growth)
-        _processed_messages.clear()
 
     phone = message.get("from", "")
     msg_type = message.get("type", "")
@@ -269,3 +267,23 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
             log.info("Voice reply sent successfully")
         except Exception as e:
             log.error(f"TTS/audio send failed: {e}", exc_info=True)
+
+
+def _verify_webhook_signature(request: Request, raw_body: bytes) -> bool:
+    """Verify Meta's X-Hub-Signature-256 header."""
+    if not VERIFY_WEBHOOK_SIGNATURE:
+        return True
+    if not WHATSAPP_APP_SECRET:
+        log.error("VERIFY_WEBHOOK_SIGNATURE=true but META_APP_SECRET is not configured")
+        return False
+
+    signature = request.headers.get("x-hub-signature-256", "")
+    if not signature.startswith("sha256="):
+        return False
+
+    expected = hmac.new(
+        WHATSAPP_APP_SECRET.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(signature, f"sha256={expected}")

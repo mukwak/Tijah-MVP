@@ -1,0 +1,12 @@
+.git
+.claude
+.env
+.env.*
+venv/
+__pycache__/
+*.pyc
+*.db
+audio_cache/
+.idea/
+.vscode/
+.pytest_cache/

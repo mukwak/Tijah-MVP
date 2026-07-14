@@ -3,7 +3,6 @@ Uses Google Gemini Flash (cheapest option) for intent parsing."""
 import json
 import os
 import httpx
-from app.config import ANTHROPIC_API_KEY
 
 # Gemini API key (use Google AI Studio free tier / cheap tier)
 GEMINI_API_KEY = os.getenv("GOOGLE_AI_API_KEY", "")
@@ -127,13 +126,9 @@ Return ONLY valid JSON. No explanation."""
 
 async def parse_intent(text: str, language: str = "pidgin") -> dict:
     """Parse user's text into a structured intent using Gemini Flash (cheapest)."""
-    # Try Gemini first (cheapest), fall back to Claude Haiku
     if GEMINI_API_KEY:
         return await _parse_with_gemini(text, language)
-    elif ANTHROPIC_API_KEY:
-        return await _parse_with_claude(text, language)
-    else:
-        return {"action": "error", "error": "No AI API key configured"}
+    return {"action": "error", "error": "GOOGLE_AI_API_KEY is not configured"}
 
 
 async def _parse_with_gemini(text: str, language: str) -> dict:
@@ -158,35 +153,5 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
             data = resp.json()
             result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
             return json.loads(result_text)
-    except Exception as e:
-        # Fall back to Claude if Gemini fails and key is available
-        if ANTHROPIC_API_KEY:
-            return await _parse_with_claude(text, language)
-        return {"action": "help", "error": str(e)}
-
-
-async def _parse_with_claude(text: str, language: str) -> dict:
-    """Fallback: Parse using Claude Haiku."""
-    import anthropic
-    client = anthropic.AsyncAnthropic(api_key=ANTHROPIC_API_KEY)
-
-    try:
-        response = await client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            system=SYSTEM_PROMPT,
-            messages=[
-                {"role": "user", "content": f"[Language: {language}] {text}"}
-            ],
-        )
-        result_text = response.content[0].text.strip()
-
-        if "```" in result_text:
-            result_text = result_text.split("```")[1]
-            if result_text.startswith("json"):
-                result_text = result_text[4:]
-            result_text = result_text.strip()
-
-        return json.loads(result_text)
     except Exception as e:
         return {"action": "help", "error": str(e)}
