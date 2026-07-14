@@ -130,11 +130,16 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         if product_sales <= 2:
             result += get_response("hint_stock_unknown", lang, product=product)
     else:
+        # Rotate one discovery hint over the first few sales
         sale_count = (await (await db.execute(
             "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
         )).fetchone())[0]
-        if sale_count <= 3:
+        if sale_count == 1:
             result += get_response("hint_after_sale", lang)
+        elif sale_count == 2:
+            result += get_response("hint_undo", lang)
+        elif sale_count == 3:
+            result += get_response("hint_after_expense", lang)
 
     return result
 
@@ -387,10 +392,13 @@ async def handle_check_credits(phone: str, data: dict, lang: str) -> str:
 
     total = sum(r[1] for r in rows)
     credit_list = "\n".join(f"  {r[0]}: {_fmt(r[1])} naira" for r in rows)
-    return get_response(
+    result = get_response(
         "credits_list", lang,
         credit_list=credit_list, total=_fmt(total),
     )
+    # Natural next step: offer a reminder message for the biggest debtor
+    result += get_response("hint_credit_reminder", lang, customer=rows[0][0])
+    return result
 
 
 async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
@@ -592,6 +600,38 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
         )
         result += get_response("daily_summary_top", lang, top_products=top_products)
 
+    # Simple insight: compare with the previous period
+    prev_filters = {
+        "today": ("date(created_at) = date('now', '+1 hours', '-1 day')", "Yesterday"),
+        "week": (
+            "created_at >= datetime('now', '+1 hours', '-14 days') "
+            "AND created_at < datetime('now', '+1 hours', '-7 days')",
+            "Last week",
+        ),
+        "month": (
+            "created_at >= datetime('now', '+1 hours', '-60 days') "
+            "AND created_at < datetime('now', '+1 hours', '-30 days')",
+            "Last month",
+        ),
+    }
+    if period in prev_filters and sales_total > 0:
+        prev_filter, prev_label = prev_filters[period]
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {prev_filter}",
+            (phone,),
+        )
+        prev_total = (await cursor.fetchone())[0]
+        if prev_total > 0:
+            key = "insight_better" if sales_total > prev_total else "insight_less"
+            result += get_response(key, lang, prev_label=prev_label, prev_total=_fmt(prev_total))
+
+    # If the user has never opened their report, point them to it once per summary
+    token_row = await (await db.execute(
+        "SELECT token FROM report_tokens WHERE phone = ?", (phone,)
+    )).fetchone()
+    if not token_row:
+        result += get_response("hint_report", lang)
+
     return result
 
 
@@ -633,7 +673,30 @@ async def handle_get_report(phone: str, data: dict, lang: str) -> str:
 
     token = await get_or_create_report_token(phone)
     url = f"{BASE_URL.rstrip('/')}/report/{token}"
-    return get_response("report_link", lang, url=url)
+    result = get_response("report_link", lang, url=url)
+
+    # No shop name yet? The natural next step is to put one on the report.
+    db = await get_db()
+    row = await (await db.execute(
+        "SELECT name FROM shops WHERE phone = ?", (phone,)
+    )).fetchone()
+    if not (row and row[0]):
+        result += get_response("shop_name_ask", lang)
+    return result
+
+
+async def handle_set_shop_name(phone: str, data: dict, lang: str) -> str:
+    """Save the shop's name so it shows on the report."""
+    name = (data.get("name") or "").strip()
+    if not name:
+        if lang == "pidgin":
+            return "Wetin be the shop name? Tell me like \"my shop name na Mama T Store\"."
+        return "What is the shop name? Tell me like \"my shop name is Mama T Store\"."
+
+    db = await get_db()
+    await db.execute("UPDATE shops SET name = ? WHERE phone = ?", (name, phone))
+    await db.commit()
+    return get_response("shop_name_set", lang, name=name)
 
 
 async def handle_feedback(phone: str, data: dict, lang: str) -> str:

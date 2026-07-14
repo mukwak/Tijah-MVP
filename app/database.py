@@ -200,8 +200,12 @@ def _translate_sqlite_query(sql: str) -> str:
             "to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')",
         "datetime('now', '+1 hours', '-7 days')":
             "to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour' - INTERVAL '7 days', 'YYYY-MM-DD HH24:MI:SS')",
+        "datetime('now', '+1 hours', '-14 days')":
+            "to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour' - INTERVAL '14 days', 'YYYY-MM-DD HH24:MI:SS')",
         "datetime('now', '+1 hours', '-30 days')":
             "to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour' - INTERVAL '30 days', 'YYYY-MM-DD HH24:MI:SS')",
+        "datetime('now', '+1 hours', '-60 days')":
+            "to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour' - INTERVAL '60 days', 'YYYY-MM-DD HH24:MI:SS')",
         "date('now', '+1 hours')":
             "((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour')::date",
         "date('now', '+1 hours', '-1 day')":

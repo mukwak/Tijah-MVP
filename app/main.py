@@ -256,6 +256,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "rename_customer": handlers.handle_rename_customer,
         "get_report": handlers.handle_get_report,
         "feedback": handlers.handle_feedback,
+        "set_shop_name": handlers.handle_set_shop_name,
     }
 
     handler = handler_map.get(action)

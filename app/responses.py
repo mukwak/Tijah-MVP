@@ -216,6 +216,16 @@ RESPONSES = {
         "english": "Hi! What did you sell today?",
     },
 
+    # === SHOP NAME ===
+    "shop_name_set": {
+        "pidgin": "I don save am! Your shop name na {name}. E go show for your report.",
+        "english": "Saved! Your shop name is {name}. It will show on your report.",
+    },
+    "shop_name_ask": {
+        "pidgin": "\n\nWetin be your shop name? Tell me like \"my shop name na Mama T Store\" - e go show for the top of your report.",
+        "english": "\n\nWhat is your shop's name? Tell me like \"my shop name is Mama T Store\" - it will show at the top of your report.",
+    },
+
     # === LANGUAGE ===
     "language_changed": {
         "pidgin": "Okay! We go yarn Pidgin.",
@@ -262,6 +272,28 @@ RESPONSES = {
     "hint_after_expense": {
         "pidgin": "\n\nAsk me \"how my shop do today?\" anytime to see your cash.",
         "english": "\n\nAsk me \"how did my shop do today?\" anytime to see your cash.",
+    },
+    "hint_undo": {
+        "pidgin": "\n\nIf I hear am wrong, just talk \"cancel am\" and I go remove am.",
+        "english": "\n\nIf I got anything wrong, just say \"cancel that\" and I'll remove it.",
+    },
+    "hint_report": {
+        "pidgin": "\n\nTalk \"my report\" anytime make you see all your records for one page.",
+        "english": "\n\nSay \"my report\" anytime to see all your records on one page.",
+    },
+    "hint_credit_reminder": {
+        "pidgin": "\n\nIf you want make I write reminder message, just talk \"remind {customer}\".",
+        "english": "\n\nWant me to write a reminder message? Just say \"remind {customer}\".",
+    },
+
+    # === INSIGHTS (one simple line, only when there is data to compare) ===
+    "insight_better": {
+        "pidgin": "\n\nE better pass {prev_label} ({prev_total} naira). Well done!",
+        "english": "\n\nThat's better than {prev_label} ({prev_total} naira). Well done!",
+    },
+    "insight_less": {
+        "pidgin": "\n\n{prev_label} you do {prev_total} naira.",
+        "english": "\n\n{prev_label} was {prev_total} naira.",
     },
 }
 

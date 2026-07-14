@@ -110,6 +110,10 @@ ACTIONS you can return:
     Triggers: "I have a complaint", "I get complaint", "this thing no work", "you recorded it wrong and I can't fix it", "report a problem", "feedback"
     Put the user's full complaint text in "message".
 
+21. SET_SHOP_NAME - User is telling you their shop's name
+    {"action": "set_shop_name", "name": "Mama T Store"}
+    Triggers: "my shop name is X", "my shop name na X", "call my shop X", "the shop is called X"
+
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
 - "k" or "thousand" = multiply by 1000
