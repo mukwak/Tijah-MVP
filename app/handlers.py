@@ -582,9 +582,9 @@ async def handle_set_price(phone: str, data: dict, lang: str) -> str:
 
 async def handle_change_language(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
-    new_lang = data.get("language", "pidgin").lower()
+    new_lang = data.get("language", "english").lower()
     if new_lang not in ("pidgin", "english"):
-        new_lang = "pidgin"
+        new_lang = "english"
 
     await db.execute("UPDATE shops SET language = ? WHERE phone = ?", (new_lang, phone))
     await db.commit()

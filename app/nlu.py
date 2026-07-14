@@ -128,12 +128,12 @@ RULES:
 - If only total is given, set unit_price = total / quantity
 - If quantity not mentioned, assume 1
 - "when" field: "today" (default), "yesterday", or an offset like "-2" for 2 days ago
-- ALWAYS include "detected_language" in your response: "pidgin" if the user spoke Nigerian Pidgin, "english" if standard English
+- ALWAYS include "detected_language" in your response: "pidgin" ONLY if the user clearly spoke Nigerian Pidgin, otherwise "english". When unsure, use "english".
 
 Return ONLY valid JSON. No explanation."""
 
 
-async def parse_intent(text: str, language: str = "pidgin") -> dict:
+async def parse_intent(text: str, language: str = "english") -> dict:
     """Parse user's text into a structured intent using Gemini Flash (cheapest)."""
     if GEMINI_API_KEY:
         return await _parse_with_gemini(text, language)

@@ -164,7 +164,7 @@ def _make_speakable(text: str) -> str:
     return s.strip()
 
 
-async def text_to_speech(text: str, language: str = "pidgin") -> str:
+async def text_to_speech(text: str, language: str = "english") -> str:
     """Convert text to speech using OpenAI TTS. Returns path to mp3 file."""
     os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
