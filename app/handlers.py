@@ -337,7 +337,7 @@ async def handle_check_credits(phone: str, data: dict, lang: str) -> str:
         )
     else:
         cursor = await db.execute(
-            """SELECT customer, SUM(amount - paid) as owed FROM credits
+            """SELECT MIN(customer) as customer, SUM(amount - paid) as owed FROM credits
                WHERE phone = ? AND settled = 0
                GROUP BY LOWER(customer)
                ORDER BY owed DESC""",
