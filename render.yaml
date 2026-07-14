@@ -29,3 +29,5 @@ services:
         sync: false
       - key: BASE_URL
         sync: false
+      - key: ADMIN_TOKEN
+        sync: false

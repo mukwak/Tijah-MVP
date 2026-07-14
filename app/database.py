@@ -317,6 +317,13 @@ CREATE TABLE IF NOT EXISTS report_tokens (
     FOREIGN KEY (phone) REFERENCES shops(phone)
 );
 
+CREATE TABLE IF NOT EXISTS feedback (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    phone       TEXT NOT NULL,
+    message     TEXT NOT NULL,
+    created_at  TEXT DEFAULT (datetime('now', '+1 hours'))
+);
+
 CREATE INDEX IF NOT EXISTS idx_payments_phone ON payments(phone, customer);
 CREATE INDEX IF NOT EXISTS idx_sales_phone_date ON sales(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_credits_phone ON credits(phone, customer, settled);
@@ -415,6 +422,13 @@ CREATE TABLE IF NOT EXISTS processed_messages (
 CREATE TABLE IF NOT EXISTS report_tokens (
     phone       TEXT PRIMARY KEY REFERENCES shops(phone),
     token       TEXT NOT NULL UNIQUE,
+    created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
+);
+
+CREATE TABLE IF NOT EXISTS feedback (
+    id          SERIAL PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    message     TEXT NOT NULL,
     created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
 );
 

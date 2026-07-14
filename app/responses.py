@@ -14,13 +14,19 @@ RESPONSES = {
     "welcome": {
         "pidgin": (
             "Hey! I be Tijah, your shop helper.\n\n"
-            "Anytime you sell something, just send me voice note. I go record am for you.\n\n"
-            "Try am now - tell me wetin you sell today!"
+            "Anytime you sell something, just send me voice note or text. I go record am for you. "
+            "You fit ask me anytime: \"wetin I sell today?\" or \"who dey owe me?\"\n\n"
+            "Small note: na only wetin you tell me I dey keep, and your record na for you alone. "
+            "This one na test version, so if something no work, just tell me \"I get complaint\".\n\n"
+            "Make we start - tell me wetin you sell today!"
         ),
         "english": (
             "Hi! I'm Tijah, your shop helper.\n\n"
-            "Anytime you sell something, just send me a voice note. I'll record it for you.\n\n"
-            "Try it now - tell me what you sold today!"
+            "Anytime you sell something, just send me a voice note or text. I'll record it for you. "
+            "You can ask me anytime: \"what did I sell today?\" or \"who owes me?\"\n\n"
+            "A quick note: we only keep what you tell us, and your records are private to you. "
+            "This is a test version, so if something doesn't work, just tell me \"I have a complaint\".\n\n"
+            "Let's start - tell me what you sold today!"
         ),
     },
 
@@ -152,6 +158,18 @@ RESPONSES = {
     "price_set": {
         "pidgin": "{product} price set to {price} naira per {unit}.",
         "english": "{product} price set to {price} naira per {unit}.",
+    },
+
+    # === FEEDBACK ===
+    "feedback_saved": {
+        "pidgin": (
+            "Thank you! I don send your complaint to the Tijah team. "
+            "Dem go look am well. Anything else?"
+        ),
+        "english": (
+            "Thank you! I've sent your feedback to the Tijah team. "
+            "They'll look into it. Anything else?"
+        ),
     },
 
     # === REPORT ===

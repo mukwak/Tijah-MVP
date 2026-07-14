@@ -22,5 +22,8 @@ BASE_URL = os.getenv("BASE_URL", "http://localhost:8000")
 DB_PATH = os.getenv("DB_PATH", "tijah.db")
 DATABASE_URL = os.getenv("DATABASE_URL", "")
 
+# Admin dashboard token (leave blank to disable /admin)
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+
 # Audio cache directory
 AUDIO_CACHE_DIR = os.getenv("AUDIO_CACHE_DIR", "audio_cache")

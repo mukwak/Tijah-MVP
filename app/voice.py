@@ -11,6 +11,15 @@ log = logging.getLogger("tijah")
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
+# gpt-4o-mini-tts follows accent/style instructions; tts-1 ignores them.
+TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
+TTS_VOICE = os.getenv("TTS_VOICE", "onyx")
+TTS_INSTRUCTIONS = os.getenv(
+    "TTS_INSTRUCTIONS",
+    "Speak with a natural Nigerian English accent, like a friendly Lagos shop assistant. "
+    "Warm, clear and unhurried. Pronounce naira and Nigerian names correctly.",
+)
+
 
 async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
     """Transcribe audio using OpenAI Whisper. Handles Nigerian English and Pidgin."""
@@ -54,6 +63,9 @@ def _make_speakable(text: str) -> str:
 
     # Strip the "I heard: ..." echo — already in the text message
     s = re.sub(r'I hear(?:d)?(?: you say)?:?\s*"[^"]*"\s*', '', s)
+
+    # Never read URLs aloud — tell the user to press the link instead
+    s = re.sub(r'https?://\S+', 'just press the link for the message I send you', s)
 
     # Convert numbers first so sentence rewrites match spoken numbers
     s = re.sub(r'\d{1,3}(?:,\d{3})+', _speak_number, s)
@@ -175,11 +187,12 @@ async def text_to_speech(text: str, language: str = "pidgin") -> str:
     log.info(f"TTS generating: text_len={len(tts_text)}")
 
     response = await openai_client.audio.speech.create(
-        model="tts-1",
-        voice="onyx",  # Deep, warm male voice — good for Nigerian context
+        model=TTS_MODEL,
+        voice=TTS_VOICE,
         input=tts_text,
         response_format="mp3",
         speed=0.95,  # Slightly slower for clarity
+        **({"instructions": TTS_INSTRUCTIONS} if TTS_INSTRUCTIONS else {}),
     )
 
     response.stream_to_file(output_path)

@@ -19,7 +19,8 @@ from app.voice import transcribe, text_to_speech
 from app.nlu import parse_intent
 from app.preclassifier import preclassify
 from app.responses import get_response
-from app.report import get_phone_by_token, render_report_html
+from app.config import ADMIN_TOKEN
+from app.report import get_phone_by_token, render_report_html, render_admin_html
 from app import handlers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -95,6 +96,14 @@ async def health():
     return {"status": "ok", "service": "tijah"}
 
 
+@app.get("/admin/{token}")
+async def admin_dashboard(token: str):
+    """Admin overview, protected by ADMIN_TOKEN env var."""
+    if not ADMIN_TOKEN or not hmac.compare_digest(token, ADMIN_TOKEN):
+        return HTMLResponse(content="<h3>Not found</h3>", status_code=404)
+    return HTMLResponse(content=await render_admin_html())
+
+
 @app.get("/report/{token}")
 async def shop_report(token: str):
     """Shareable read-only report page for a shop, keyed by unguessable token."""
@@ -123,11 +132,13 @@ async def _process_message(message: dict):
     cursor = await db.execute("SELECT language, onboarded, name FROM shops WHERE phone = ?", (phone,))
     shop = await cursor.fetchone()
 
-    if not shop:
-        # New user - create shop and continue processing their message
+    is_new_user = shop is None
+    if is_new_user:
+        # New user - create shop, introduce Tijah, then continue processing their message
         await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone,))
         await db.commit()
         lang = "english"
+        await send_text(phone, get_response("welcome", lang))
     else:
         lang = shop[0] or "english"
 
@@ -244,6 +255,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "confirm_no": handlers.handle_confirm_no,
         "rename_customer": handlers.handle_rename_customer,
         "get_report": handlers.handle_get_report,
+        "feedback": handlers.handle_feedback,
     }
 
     handler = handler_map.get(action)

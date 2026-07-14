@@ -602,6 +602,24 @@ async def handle_get_report(phone: str, data: dict, lang: str) -> str:
     return get_response("report_link", lang, url=url)
 
 
+async def handle_feedback(phone: str, data: dict, lang: str) -> str:
+    """Store tester feedback/complaints so the team can review them."""
+    db = await get_db()
+    message = (data.get("message") or "").strip()
+
+    if not message:
+        if lang == "pidgin":
+            return "Wetin happen? Tell me the problem, I go send am to the Tijah team."
+        return "What happened? Tell me the problem and I'll send it to the Tijah team."
+
+    await db.execute(
+        "INSERT INTO feedback (phone, message) VALUES (?, ?)",
+        (phone, message),
+    )
+    await db.commit()
+    return get_response("feedback_saved", lang)
+
+
 async def handle_credit_history(phone: str, data: dict, lang: str) -> str:
     """Show full credit and payment history for a customer."""
     db = await get_db()

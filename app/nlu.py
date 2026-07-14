@@ -105,6 +105,11 @@ ACTIONS you can return:
     {"action": "get_report"}
     Triggers: "send me my report", "I want to see my records", "show me all my data", "shop report", "make I see everything"
 
+20. FEEDBACK - User is complaining about Tijah itself, reporting a bug, or giving feedback about the service (NOT about their shop/customers)
+    {"action": "feedback", "message": "the voice note did not play"}
+    Triggers: "I have a complaint", "I get complaint", "this thing no work", "you recorded it wrong and I can't fix it", "report a problem", "feedback"
+    Put the user's full complaint text in "message".
+
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
 - "k" or "thousand" = multiply by 1000

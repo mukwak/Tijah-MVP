@@ -42,6 +42,71 @@ def _e(value) -> str:
     return html.escape(str(value if value is not None else ""))
 
 
+async def render_admin_html() -> str:
+    """Admin overview: every shop's activity plus tester feedback."""
+    db = await get_db()
+
+    cursor = await db.execute(
+        """SELECT s.phone, s.name, s.language, s.created_at,
+                  (SELECT COUNT(*) FROM sales WHERE sales.phone = s.phone),
+                  (SELECT COALESCE(SUM(total), 0) FROM sales WHERE sales.phone = s.phone),
+                  (SELECT MAX(created_at) FROM sales WHERE sales.phone = s.phone)
+           FROM shops s ORDER BY s.created_at DESC""")
+    shops = await cursor.fetchall()
+
+    cursor = await db.execute(
+        "SELECT phone, message, created_at FROM feedback ORDER BY created_at DESC LIMIT 200")
+    feedback = await cursor.fetchall()
+
+    cursor = await db.execute("SELECT COUNT(*) FROM processed_messages")
+    msg_count = (await cursor.fetchone())[0]
+
+    shop_rows = "".join(
+        f"<tr><td>{_e(s[0])}</td><td>{_e(s[1] or '-')}</td><td>{_e(s[2])}</td>"
+        f"<td>{_e(str(s[3])[:10])}</td><td>{s[4]}</td><td>&#8358;{_fmt(s[5])}</td>"
+        f"<td>{_e(str(s[6])[:16] if s[6] else 'never')}</td></tr>"
+        for s in shops
+    ) or '<tr><td colspan="7" class="empty">No shops yet</td></tr>'
+
+    feedback_rows = "".join(
+        f"<tr><td>{_e(str(f[2])[:16])}</td><td>{_e(f[0])}</td><td>{_e(f[1])}</td></tr>"
+        for f in feedback
+    ) or '<tr><td colspan="3" class="empty">No feedback yet</td></tr>'
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Tijah Admin</title>
+<style>
+  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; }}
+  header {{ background: #333; color: #fff; padding: 20px 16px; }}
+  header h1 {{ margin: 0; font-size: 1.3rem; }}
+  section {{ padding: 0 16px 16px; }}
+  h2 {{ font-size: 1rem; margin: 16px 0 8px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 0.85rem; }}
+  th {{ background: #eee; text-align: left; padding: 8px; }}
+  td {{ padding: 8px; border-top: 1px solid #f0f0f0; }}
+  .empty {{ color: #999; text-align: center; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>Tijah Admin</h1>
+  <p>{len(shops)} shops &middot; {msg_count} messages processed</p>
+</header>
+<section>
+  <h2>Shops</h2>
+  <table><tr><th>Phone</th><th>Name</th><th>Lang</th><th>Joined</th><th>Sales</th><th>Total</th><th>Last sale</th></tr>{shop_rows}</table>
+  <h2>Tester feedback</h2>
+  <table><tr><th>Date</th><th>Phone</th><th>Message</th></tr>{feedback_rows}</table>
+</section>
+</body>
+</html>"""
+
+
 async def render_report_html(phone: str) -> str:
     """Render the full shop report as mobile-friendly HTML."""
     db = await get_db()
