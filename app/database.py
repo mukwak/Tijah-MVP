@@ -76,13 +76,21 @@ class PostgresDatabase:
 
     def __init__(self, url: str):
         self.url = url
-        self.conn = None
+        self.pool = None
 
     async def connect(self):
         if asyncpg is None:
             raise RuntimeError("DATABASE_URL is set to Postgres, but asyncpg is not installed")
-        # Works with Neon/Supabase pooled PgBouncer URLs as well as direct Postgres URLs.
-        self.conn = await asyncpg.connect(self.url, statement_cache_size=0)
+        # Pool instead of a single connection: Neon suspends idle databases and
+        # kills connections, so each acquire must be able to reconnect.
+        # statement_cache_size=0 keeps PgBouncer-pooled URLs working too.
+        self.pool = await asyncpg.create_pool(
+            self.url,
+            statement_cache_size=0,
+            min_size=0,
+            max_size=5,
+            max_inactive_connection_lifetime=60,
+        )
         await self.init_tables()
 
     async def execute(self, sql: str, params: tuple | list = ()):
@@ -90,25 +98,38 @@ class PostgresDatabase:
         sql = _convert_placeholders(sql)
         lowered = sql.lstrip().lower()
         if lowered.startswith("select"):
-            rows = await self.conn.fetch(sql, *params)
+            rows = await self._fetch(sql, params)
             return QueryResult(rows)
         if " returning " in lowered:
-            rows = await self.conn.fetch(sql, *params)
+            rows = await self._fetch(sql, params)
             lastrowid = rows[0][0] if rows else None
             return QueryResult(rows, lastrowid=lastrowid)
-        await self.conn.execute(sql, *params)
+        await self._execute(sql, params)
         return QueryResult()
 
+    async def _fetch(self, sql: str, params):
+        try:
+            return await self.pool.fetch(sql, *params)
+        except (asyncpg.PostgresConnectionError, ConnectionError, OSError):
+            # Stale connection after a Neon suspend - retry once on a fresh one
+            return await self.pool.fetch(sql, *params)
+
+    async def _execute(self, sql: str, params):
+        try:
+            return await self.pool.execute(sql, *params)
+        except (asyncpg.PostgresConnectionError, ConnectionError, OSError):
+            return await self.pool.execute(sql, *params)
+
     async def executescript(self, sql: str):
-        await self.conn.execute(sql)
+        await self._execute(sql, ())
 
     async def commit(self):
         return None
 
     async def close(self):
-        if self.conn:
-            await self.conn.close()
-            self.conn = None
+        if self.pool:
+            await self.pool.close()
+            self.pool = None
 
     async def init_tables(self):
         await self.executescript(POSTGRES_SCHEMA)
@@ -116,16 +137,16 @@ class PostgresDatabase:
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
             return False
-        row = await self.conn.fetchrow(
+        rows = await self._fetch(
             """
             INSERT INTO processed_messages (message_id)
             VALUES ($1)
             ON CONFLICT (message_id) DO NOTHING
             RETURNING message_id
             """,
-            message_id,
+            (message_id,),
         )
-        return row is not None
+        return len(rows) > 0
 
 
 async def get_db():
