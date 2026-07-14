@@ -251,6 +251,18 @@ RESPONSES = {
         "pidgin": "\n\nWhen {customer} pay, just tell me.",
         "english": "\n\nWhen {customer} pays, just tell me.",
     },
+    "hint_stock_unknown": {
+        "pidgin": "\n\nIf you tell me how many {product} you get, I go dey count am and warn you before e finish.",
+        "english": "\n\nIf you tell me how many {product} you have, I can keep count and warn you when it's running out.",
+    },
+    "hint_set_price": {
+        "pidgin": "\n\nWetin be {product} price? Tell me like \"{product} price na 500 per {unit}\" - next time I go record your sales sharp-sharp.",
+        "english": "\n\nWhat price do you sell {product}? Tell me like \"{product} price is 500 per {unit}\" - then I can record your sales faster.",
+    },
+    "hint_after_expense": {
+        "pidgin": "\n\nAsk me \"how my shop do today?\" anytime to see your cash.",
+        "english": "\n\nAsk me \"how did my shop do today?\" anytime to see your cash.",
+    },
 }
 
 

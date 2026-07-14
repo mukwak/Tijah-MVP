@@ -93,20 +93,26 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         else:
             credit_note = f"\n{customer} bought on credit."
 
-    # Check low stock warning
-    cursor = await db.execute(
-        "SELECT stock_qty, unit FROM products WHERE id = ?", (product_id,)
-    )
-    row = await cursor.fetchone()
+    # Stock warnings only make sense if the user actually tracks stock for this product
+    has_stock_data = (await (await db.execute(
+        "SELECT COUNT(*) FROM stock_entries WHERE phone = ? AND product_id = ?",
+        (phone, product_id),
+    )).fetchone())[0] > 0
+
     low_stock_msg = ""
-    if row and row[0] < 0:
-        low_stock_msg = "\n" + get_response(
-            "stock_oversold", lang, product=product, quantity=_fmt(abs(row[0])), unit=row[1]
+    if has_stock_data:
+        cursor = await db.execute(
+            "SELECT stock_qty, unit FROM products WHERE id = ?", (product_id,)
         )
-    elif row and row[0] == 0:
-        low_stock_msg = "\n" + get_response("stock_finished", lang, product=product)
-    elif row and row[0] <= 3:
-        low_stock_msg = "\n" + get_response("stock_low", lang, product=product, quantity=_fmt(row[0]), unit=row[1])
+        row = await cursor.fetchone()
+        if row and row[0] < 0:
+            low_stock_msg = "\n" + get_response(
+                "stock_oversold", lang, product=product, quantity=_fmt(abs(row[0])), unit=row[1]
+            )
+        elif row and row[0] == 0:
+            low_stock_msg = "\n" + get_response("stock_finished", lang, product=product)
+        elif row and row[0] <= 3:
+            low_stock_msg = "\n" + get_response("stock_low", lang, product=product, quantity=_fmt(row[0]), unit=row[1])
 
     result = get_response(
         "sale_recorded", lang,
@@ -114,12 +120,21 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         credit_note=credit_note,
     ) + low_stock_msg
 
-    # Drip hint for new users
-    sale_count = (await (await db.execute(
-        "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
-    )).fetchone())[0]
-    if sale_count <= 3:
-        result += get_response("hint_after_sale", lang)
+    # One contextual nudge — the natural next step for this action
+    if not has_stock_data:
+        # First couple of sales of an untracked product: offer stock tracking
+        product_sales = (await (await db.execute(
+            "SELECT COUNT(*) FROM sales WHERE phone = ? AND product_id = ?",
+            (phone, product_id),
+        )).fetchone())[0]
+        if product_sales <= 2:
+            result += get_response("hint_stock_unknown", lang, product=product)
+    else:
+        sale_count = (await (await db.execute(
+            "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+        )).fetchone())[0]
+        if sale_count <= 3:
+            result += get_response("hint_after_sale", lang)
 
     return result
 
@@ -157,12 +172,22 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
         quantity=_fmt(quantity), unit=unit, product=product, price_note=price_note,
     )
 
-    # Drip hint for new users
-    stock_count = (await (await db.execute(
-        "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
+    # One contextual nudge — if no selling price is set, that's the natural next step
+    sell_price = (await (await db.execute(
+        "SELECT sell_price FROM products WHERE id = ?", (product_id,)
     )).fetchone())[0]
-    if stock_count <= 2:
-        result += get_response("hint_after_stock", lang)
+    product_entries = (await (await db.execute(
+        "SELECT COUNT(*) FROM stock_entries WHERE phone = ? AND product_id = ?",
+        (phone, product_id),
+    )).fetchone())[0]
+    if not sell_price and product_entries <= 2:
+        result += get_response("hint_set_price", lang, product=product, unit=unit)
+    else:
+        stock_count = (await (await db.execute(
+            "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
+        )).fetchone())[0]
+        if stock_count <= 2:
+            result += get_response("hint_after_stock", lang)
 
     return result
 
@@ -380,10 +405,19 @@ async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
     )
     await db.commit()
 
-    return get_response(
+    result = get_response(
         "expense_recorded", lang,
         amount=_fmt(amount), description=description,
     )
+
+    # First expenses: point to the daily summary as the natural next step
+    expense_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM expenses WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if expense_count <= 2:
+        result += get_response("hint_after_expense", lang)
+
+    return result
 
 
 async def handle_check_expenses(phone: str, data: dict, lang: str) -> str:
