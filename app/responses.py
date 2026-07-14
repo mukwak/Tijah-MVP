@@ -193,7 +193,9 @@ RESPONSES = {
             "\"I sell 3 bag of rice, 5 thousand\"\n"
             "\"I buy 10 bag cement\"\n"
             "\"Mama Joy owe me 5 thousand\"\n"
-            "\"How my shop do today?\"\n\n"
+            "\"How my shop do today?\"\n"
+            "\"My report\" - see all your records\n"
+            "\"Cancel am\" - if you make mistake\n\n"
             "Voice note or text, I go understand."
         ),
         "english": (
@@ -201,7 +203,9 @@ RESPONSES = {
             "\"I sold 3 bags of rice for 5 thousand\"\n"
             "\"I bought 10 bags of cement\"\n"
             "\"Mama Joy owes me 5 thousand\"\n"
-            "\"How did my shop do today?\"\n\n"
+            "\"How did my shop do today?\"\n"
+            "\"My report\" - see all your records\n"
+            "\"Cancel that\" - if you make a mistake\n\n"
             "Voice note or text, I'll understand."
         ),
     },
@@ -220,8 +224,8 @@ RESPONSES = {
 
     # === ERRORS ===
     "error": {
-        "pidgin": "Sorry, something no work. Try again?",
-        "english": "Sorry, something went wrong. Try again?",
+        "pidgin": "Sorry, something no work. Try again? If e still no work, tell me \"I get complaint\".",
+        "english": "Sorry, something went wrong. Try again? If it still fails, tell me \"I have a complaint\".",
     },
     "not_understood": {
         "pidgin": "I no understand that one. Try something like:\n\"I sell 5 bag of rice, 2 thousand naira\"",
