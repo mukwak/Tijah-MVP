@@ -26,7 +26,7 @@ _PATTERNS: list[tuple[str, dict]] = [
      {"action": "help"}),
 
     # Feedback / complaints (bare trigger — handler asks for details)
-    (r"^(feedback|complaint|i (have|get) (a )?complaint|report (a )?problem)$",
+    (r"^(feedback|complaint|i (have|get) (a )?(complaint|feedback)|report (a )?problem)$",
      {"action": "feedback"}),
 
     # Shop report link

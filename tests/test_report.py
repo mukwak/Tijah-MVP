@@ -66,3 +66,10 @@ def test_preclassifier_matches_report_requests():
     assert preclassify("my report") == {"action": "get_report"}
     assert preclassify("send me my report") == {"action": "get_report"}
     assert preclassify("I sold 3 bags of rice") is None
+
+
+def test_preclassifier_matches_feedback_triggers():
+    assert preclassify("I have feedback") == {"action": "feedback"}
+    assert preclassify("I have a complaint") == {"action": "feedback"}
+    assert preclassify("I get complaint") == {"action": "feedback"}
+    assert preclassify("feedback") == {"action": "feedback"}

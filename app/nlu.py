@@ -107,7 +107,7 @@ ACTIONS you can return:
 
 20. FEEDBACK - User is complaining about Tijah itself, reporting a bug, or giving feedback about the service (NOT about their shop/customers)
     {"action": "feedback", "message": "the voice note did not play"}
-    Triggers: "I have a complaint", "I get complaint", "this thing no work", "you recorded it wrong and I can't fix it", "report a problem", "feedback"
+    Triggers: "I have a complaint", "I get complaint", "I have feedback", "this thing no work", "you recorded it wrong and I can't fix it", "report a problem", "feedback"
     Put the user's full complaint text in "message".
 
 21. SET_SHOP_NAME - User is telling you their shop's name
