@@ -235,19 +235,21 @@ async def render_report_html(phone: str) -> str:
 <meta name="robots" content="noindex, nofollow">
 <title>{_e(shop_name)} - Tijah Report</title>
 <style>
-  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; }}
-  header {{ background: #1a7f4e; color: #fff; padding: 20px 16px; }}
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; font-size: 16px; }}
+  header {{ background: #1a7f4e; color: #fff; padding: 20px 12px; }}
   header h1 {{ margin: 0; font-size: 1.3rem; }}
   header p {{ margin: 4px 0 0; opacity: 0.85; font-size: 0.85rem; }}
-  .cards {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 16px; }}
-  .card {{ background: #fff; border-radius: 10px; padding: 14px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+  .cards {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 12px; }}
+  .card {{ background: #fff; border-radius: 10px; padding: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
   .card .label {{ font-size: 0.75rem; color: #777; text-transform: uppercase; }}
-  .card .value {{ font-size: 1.25rem; font-weight: 700; margin-top: 4px; }}
-  section {{ padding: 0 16px 16px; }}
-  h2 {{ font-size: 1rem; margin: 12px 0 8px; }}
-  table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px; overflow: hidden; font-size: 0.85rem; }}
-  th {{ background: #eee; text-align: left; padding: 8px; }}
-  td {{ padding: 8px; border-top: 1px solid #f0f0f0; }}
+  .card .value {{ font-size: 1.2rem; font-weight: 700; margin-top: 4px; }}
+  section {{ padding: 0 12px 12px; }}
+  h2 {{ font-size: 1rem; margin: 14px 0 8px; }}
+  .table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff; font-size: 0.9rem; min-width: 320px; }}
+  th {{ background: #eee; text-align: left; padding: 8px 6px; white-space: nowrap; }}
+  td {{ padding: 8px 6px; border-top: 1px solid #f0f0f0; }}
   .empty {{ color: #999; text-align: center; }}
   footer {{ text-align: center; color: #999; font-size: 0.75rem; padding: 20px; }}
 </style>
@@ -265,15 +267,15 @@ async def render_report_html(phone: str) -> str:
 </div>
 <section>
   <h2>Stock</h2>
-  <table><tr><th>Product</th><th>In stock</th><th>Price</th></tr>{product_rows}</table>
+  <div class="table-wrap"><table><tr><th>Product</th><th>In stock</th><th>Price</th></tr>{product_rows}</table></div>
   <h2>People who owe you</h2>
-  <table><tr><th>Customer</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Date</th></tr>{credit_rows}</table>
+  <div class="table-wrap"><table><tr><th>Customer</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Date</th></tr>{credit_rows}</table></div>
   <h2>Recent sales</h2>
-  <table><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Customer</th></tr>{sales_rows}</table>
+  <div class="table-wrap"><table><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total</th><th>Customer</th></tr>{sales_rows}</table></div>
   <h2>Payments received</h2>
-  <table><tr><th>Date</th><th>Customer</th><th>Amount</th></tr>{payment_rows}</table>
+  <div class="table-wrap"><table><tr><th>Date</th><th>Customer</th><th>Amount</th></tr>{payment_rows}</table></div>
   <h2>Expenses</h2>
-  <table><tr><th>Date</th><th>Item</th><th>Category</th><th>Amount</th></tr>{expense_rows}</table>
+  <div class="table-wrap"><table><tr><th>Date</th><th>Item</th><th>Category</th><th>Amount</th></tr>{expense_rows}</table></div>
 </section>
 <footer>Powered by Tijah &middot; This link is private to this shop</footer>
 </body>
@@ -333,25 +335,26 @@ async def render_customer_receipt_html(phone: str, customer: str) -> str:
 <meta name="robots" content="noindex, nofollow">
 <title>{_e(customer)} - Receipt from {_e(shop_name)}</title>
 <style>
-  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; }}
-  header {{ background: #1a7f4e; color: #fff; padding: 20px 16px; }}
+  * {{ box-sizing: border-box; }}
+  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; font-size: 16px; }}
+  header {{ background: #1a7f4e; color: #fff; padding: 20px 12px; }}
   header h1 {{ margin: 0; font-size: 1.3rem; }}
   header p {{ margin: 4px 0 0; opacity: 0.85; font-size: 0.85rem; }}
-  .status {{ margin: 16px; padding: 16px; border-radius: 10px; background: #fff;
+  .status {{ margin: 12px; padding: 16px; border-radius: 10px; background: #fff;
              text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
   .status .amount {{ font-size: 1.5rem; font-weight: 700; color: {status_color}; }}
   .status .label {{ font-size: 0.85rem; color: #777; margin-top: 4px; }}
-  .summary {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px; }}
-  .summary .card {{ background: #fff; border-radius: 10px; padding: 14px;
+  .summary {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 12px; }}
+  .summary .card {{ background: #fff; border-radius: 10px; padding: 12px;
                     box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; }}
   .summary .card .label {{ font-size: 0.7rem; color: #777; text-transform: uppercase; }}
   .summary .card .value {{ font-size: 1.1rem; font-weight: 700; margin-top: 4px; }}
-  section {{ padding: 0 16px 16px; }}
-  h2 {{ font-size: 1rem; margin: 16px 0 8px; }}
-  table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px;
-           overflow: hidden; font-size: 0.85rem; }}
-  th {{ background: #eee; text-align: left; padding: 8px; }}
-  td {{ padding: 8px; border-top: 1px solid #f0f0f0; }}
+  section {{ padding: 0 12px 12px; }}
+  h2 {{ font-size: 1rem; margin: 14px 0 8px; }}
+  .table-wrap {{ overflow-x: auto; -webkit-overflow-scrolling: touch; border-radius: 10px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff; font-size: 0.9rem; }}
+  th {{ background: #eee; text-align: left; padding: 8px 6px; white-space: nowrap; }}
+  td {{ padding: 8px 6px; border-top: 1px solid #f0f0f0; }}
   .empty {{ color: #999; text-align: center; }}
   footer {{ text-align: center; color: #999; font-size: 0.75rem; padding: 20px; }}
 </style>
@@ -371,9 +374,9 @@ async def render_customer_receipt_html(phone: str, customer: str) -> str:
 </div>
 <section>
   <h2>Items bought</h2>
-  <table><tr><th>Date</th><th>Item</th><th>Amount</th></tr>{credit_rows}</table>
+  <div class="table-wrap"><table><tr><th>Date</th><th>Item</th><th>Amount</th></tr>{credit_rows}</table></div>
   <h2>Payments made</h2>
-  <table><tr><th>Date</th><th>Amount</th></tr>{payment_rows}</table>
+  <div class="table-wrap"><table><tr><th>Date</th><th>Amount</th></tr>{payment_rows}</table></div>
 </section>
 <footer>Powered by Tijah &middot; {_e(shop_name)}</footer>
 </body>
