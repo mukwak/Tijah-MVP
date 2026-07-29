@@ -104,6 +104,8 @@ ACTIONS you can return:
       {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000}
     ], "when": "today"}
     IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
+    Prices can be omitted if the user doesn't mention them — the system will look up stored prices. Example: "I sold 20 coke, 15 biscuit, 10 soap" → items with quantity only, unit_price: 0, total: 0.
+    This supports end-of-day batch recording for high-volume shops.
 
 20. GET_REPORT - User wants a link to see/review all their shop records
     {"action": "get_report"}

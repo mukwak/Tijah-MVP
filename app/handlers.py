@@ -1258,6 +1258,7 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
 
     results = []
     grand_total = 0
+    needs_price = []
 
     for item in items:
         # Process each item as a sale
@@ -1265,8 +1266,13 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
         if "when" not in item and "when" in data:
             item["when"] = data["when"]
         result = await handle_record_sale(phone, item, lang)
-        # Extract just the first line (the confirmation)
         first_line = result.split("\n")[0]
+
+        # Check if the handler asked for a price (no stored price found)
+        if "How much" in result or "How much" in first_line:
+            needs_price.append(item.get("product", "item"))
+            continue
+
         results.append(first_line)
         # Recalculate — don't trust LLM total
         qty = float(item.get("quantity", 1))
@@ -1274,10 +1280,18 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
         grand_total += qty * price
 
     summary = "\n".join(results)
-    if lang == "pidgin":
-        summary += f"\n\nTotal: {_fmt(grand_total)} naira for everything."
-    else:
-        summary += f"\n\nTotal: {_fmt(grand_total)} naira for all items."
+    if grand_total > 0:
+        if lang == "pidgin":
+            summary += f"\n\nTotal: {_fmt(grand_total)} naira for everything."
+        else:
+            summary += f"\n\nTotal: {_fmt(grand_total)} naira for all items."
+
+    if needs_price:
+        names = ", ".join(needs_price)
+        if lang == "pidgin":
+            summary += f"\n\nI no know the price for: {names}. Tell me the price."
+        else:
+            summary += f"\n\nI don't have a price for: {names}. Tell me the price."
 
     return summary
 
