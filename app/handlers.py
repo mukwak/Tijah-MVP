@@ -214,6 +214,29 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
     amount = float(data.get("amount", 0))
     note = data.get("note", "")
 
+    # Duplicate detection: if the user just got a voice name check and is now
+    # re-sending the same credit with a different name, treat as a rename.
+    if not data.get("_skip_voice_dedup"):
+        pending = await _peek_pending(db, phone)
+        if pending and pending.get("action") == "voice_name_correction":
+            old_name = pending["old_customer"]
+            old_amount = pending["amount"]
+            if amount == old_amount and customer.lower() != old_name.lower():
+                # This looks like a correction — rename instead of adding a duplicate
+                await _clear_pending(db, phone)
+                await db.execute(
+                    "UPDATE credits SET customer = ? WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+                    (customer, phone, old_name),
+                )
+                await db.execute(
+                    "UPDATE payments SET customer = ? WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+                    (customer, phone, old_name),
+                )
+                await db.commit()
+                if lang == "pidgin":
+                    return f"I don change \"{old_name}\" to \"{customer}\". No double record."
+                return f"Fixed! Changed \"{old_name}\" to \"{customer}\". No duplicate."
+
     # Check for similar existing customer unless a pending confirmation already resolved it.
     matched_name, match_type = (customer, None)
     if not data.get("_skip_customer_match"):
@@ -240,8 +263,14 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
 
     # Voice name verification: if this is a NEW customer from a voice note,
     # give the user a chance to correct the name before it gets entrenched.
+    # Save pending so we can detect duplicates if they re-send the command.
     if match_type is None and data.get("_is_voice"):
         result += get_response("hint_voice_name_check", lang, customer=customer)
+        await _save_pending(db, phone, {
+            "action": "voice_name_correction",
+            "old_customer": customer,
+            "amount": amount,
+        })
 
     # Drip hints — credit-related discovery
     credit_count = (await (await db.execute(
@@ -934,7 +963,7 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     """User confirmed the fuzzy customer match."""
     db = await get_db()
     pending = await _get_pending(db, phone)
-    if not pending:
+    if not pending or "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."
@@ -958,7 +987,7 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     """User rejected the fuzzy match — use original name as new customer."""
     db = await get_db()
     pending = await _get_pending(db, phone)
-    if not pending:
+    if not pending or "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."
@@ -1375,17 +1404,27 @@ async def _save_pending(db, phone, action_data):
     await db.commit()
 
 
-async def _get_pending(db, phone):
-    """Get and clear pending action."""
+async def _peek_pending(db, phone):
+    """Read pending action without clearing it."""
     cursor = await db.execute(
         "SELECT action_data FROM pending_actions WHERE phone = ?", (phone,)
     )
     row = await cursor.fetchone()
-    if row:
-        await db.execute("DELETE FROM pending_actions WHERE phone = ?", (phone,))
-        await db.commit()
-        return json.loads(row[0])
-    return None
+    return json.loads(row[0]) if row else None
+
+
+async def _clear_pending(db, phone):
+    """Clear pending action."""
+    await db.execute("DELETE FROM pending_actions WHERE phone = ?", (phone,))
+    await db.commit()
+
+
+async def _get_pending(db, phone):
+    """Get and clear pending action."""
+    pending = await _peek_pending(db, phone)
+    if pending:
+        await _clear_pending(db, phone)
+    return pending
 
 
 async def _add_credit(db, phone, customer, amount, note=""):

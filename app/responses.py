@@ -294,8 +294,8 @@ RESPONSES = {
         "english": "\n\nWant me to write a reminder message? Just say \"remind {customer}\".",
     },
     "hint_voice_name_check": {
-        "pidgin": "\n\nI hear \"{customer}\" - if the name no correct, type the correct spelling.",
-        "english": "\n\nI heard \"{customer}\" - if that's wrong, type the correct spelling.",
+        "pidgin": "\n\nI hear \"{customer}\" - if the name no correct, tell me \"change {customer} to (correct name)\".",
+        "english": "\n\nI heard \"{customer}\" - if that's wrong, say \"change {customer} to (correct name)\".",
     },
     "hint_voice_name_spell": {
         "pidgin": "\n\nVoice fit change name small. Try type the name instead.",

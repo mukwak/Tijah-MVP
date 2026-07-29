@@ -212,6 +212,35 @@ async def run():
                                   customer="Mama Joy", url="https://x.com/r/abc")
     check("Pidgin receipt works", "Mama Joy" in receipt_pidgin)
 
+    # === TEST 18: Voice name duplicate detection ===
+    print("\n--- TEST 18: Voice name duplicate detection ---")
+    PHONE4 = "2349000000004"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (PHONE4,))
+    await db.commit()
+
+    # Simulate: voice credit records "CC Tolu" (wrong name from Whisper)
+    intent = {"action": "record_credit", "customer": "CC Tolu", "amount": 1500,
+              "note": "soap", "_is_voice": True}
+    resp = await _route_intent(PHONE4, intent, "english")
+    check("Voice credit recorded", "CC Tolu" in resp and "1,500" in resp)
+    check("Voice name hint shown", "change CC Tolu to" in resp)
+
+    # User re-sends with correct name and same amount — should rename, not duplicate
+    intent2 = {"action": "record_credit", "customer": "Sisi Tolu", "amount": 1500,
+               "note": "soap"}
+    resp2 = await _route_intent(PHONE4, intent2, "english")
+    check("Detected as correction", "Changed" in resp2 or "change" in resp2.lower())
+    check("No duplicate", "duplicate" in resp2.lower() or "double" in resp2.lower()
+          or "No duplicate" in resp2)
+
+    # Verify only one credit exists, under the corrected name
+    cursor = await db.execute(
+        "SELECT customer, amount FROM credits WHERE phone = ? AND settled = 0", (PHONE4,))
+    credits = await cursor.fetchall()
+    check("Only one credit entry", len(credits) == 1)
+    check("Name corrected to Sisi Tolu",
+          len(credits) == 1 and credits[0][0] == "Sisi Tolu")
+
     # === CLEANUP ===
     await close_db()
     pathlib.Path("test_smoke.db").unlink(missing_ok=True)
