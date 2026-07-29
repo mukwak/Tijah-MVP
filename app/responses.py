@@ -345,6 +345,14 @@ RESPONSES = {
         "pidgin": "Good morning! Ready to record today sales. Just yarn to me when you sell something.",
         "english": "Good morning! Ready to record today's sales. Just tell me when you sell something.",
     },
+    "nudge_debt_aging": {
+        "pidgin": "\n\n{customer} don owe you {amount} naira for {days} days now. Say \"remind {customer}\" make I write reminder for you.",
+        "english": "\n\n{customer} has owed you {amount} naira for {days} days. Say \"remind {customer}\" and I'll write a reminder for you.",
+    },
+    "nudge_low_stock": {
+        "pidgin": "\n\nStock dey low: {items}. Time to restock!",
+        "english": "\n\nLow stock alert: {items}. Time to restock!",
+    },
 
     # === PROGRESSIVE DISCOVERY HINTS ===
     "hint_discover_expenses": {

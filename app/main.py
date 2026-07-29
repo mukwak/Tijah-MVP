@@ -170,6 +170,36 @@ async def daily_nudge(request: Request):
         else:
             msg = get_response("nudge_evening_idle", lang)
 
+        # Debt aging: mention oldest unpaid debt (>14 days)
+        cursor = await db.execute(
+            """SELECT customer, amount, created_at FROM credits
+               WHERE phone = ? AND settled = 0
+               AND created_at <= datetime('now', '+1 hours', '-14 days')
+               ORDER BY created_at ASC LIMIT 1""",
+            (phone,),
+        )
+        old_debt = await cursor.fetchone()
+        if old_debt:
+            customer, amount, created_at = old_debt[0], old_debt[1], old_debt[2]
+            days_ago = (await (await db.execute(
+                "SELECT CAST(julianday('now', '+1 hours') - julianday(?) AS INTEGER)",
+                (created_at,),
+            )).fetchone())[0]
+            msg += get_response("nudge_debt_aging", lang,
+                                customer=customer, amount=_fmt(amount), days=days_ago)
+
+        # Low stock alert: products with stock tracked and quantity <= 5
+        cursor = await db.execute(
+            """SELECT name, stock_qty, unit FROM products
+               WHERE phone = ? AND stock_qty > 0 AND stock_qty <= 5
+               ORDER BY stock_qty ASC LIMIT 2""",
+            (phone,),
+        )
+        low_stock = await cursor.fetchall()
+        if low_stock:
+            items = ", ".join(f"{row[0]} ({_fmt(row[1])} {row[2] or 'left'})" for row in low_stock)
+            msg += get_response("nudge_low_stock", lang, items=items)
+
         try:
             await send_text(phone, msg)
             sent += 1
@@ -372,6 +402,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "customer_statement": handlers.handle_customer_statement,
         "check_payments": handlers.handle_check_payments,
         "merge_products": handlers.handle_merge_products,
+        "what_can_you_do": handlers.handle_what_can_you_do,
     }
 
     handler = handler_map.get(action)

@@ -65,6 +65,10 @@ ACTIONS you can return:
 11. HELP - User needs help or doesn't know what to do
     {"action": "help"}
 
+11b. WHAT_CAN_YOU_DO - User wants to know what features are available
+    {"action": "what_can_you_do"}
+    Triggers: "what can you do", "what else can you do", "wetin you fit do", "what else"
+
 12. GREETING - User is just greeting
     {"action": "greeting"}
 

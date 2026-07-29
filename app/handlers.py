@@ -1600,6 +1600,59 @@ async def _add_credit(db, phone, customer, amount, note=""):
     )
 
 
+async def handle_what_can_you_do(phone: str, data: dict, lang: str) -> str:
+    """Show a personalized list of features the user hasn't tried yet."""
+    db = await get_db()
+
+    # Check which features they've used
+    sale_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    expense_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM expenses WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    stock_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    credit_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    report_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM report_tokens WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+
+    tips = []
+    is_pidgin = lang == "pidgin"
+
+    if sale_count == 0:
+        tips.append('"I sell 3 bag rice, 5 thousand"' if is_pidgin else '"I sold 3 bags of rice for 5 thousand"')
+    if credit_count == 0:
+        tips.append('"Mama Joy owe me 5 thousand"' if is_pidgin else '"Mama Joy owes me 5 thousand"')
+    if expense_count == 0:
+        tips.append('"I spend 500 on transport"' if is_pidgin else '"I spent 500 on transport"')
+    if stock_count == 0:
+        tips.append('"I buy 10 bag cement"' if is_pidgin else '"I bought 10 bags of cement"')
+    if sale_count > 0 or expense_count > 0:
+        tips.append('"How my shop do today?"' if is_pidgin else '"How did my shop do today?"')
+    if report_count == 0 and sale_count > 0:
+        tips.append('"My report"' if is_pidgin else '"My report"')
+    if credit_count > 0:
+        tips.append('"Who owe me?"' if is_pidgin else '"Who owes me?"')
+    # Always show these — users may not know
+    tips.append('"Cancel am"' if is_pidgin else '"Cancel that" — fix mistakes')
+    if sale_count >= 3:
+        tips.append('"I sell rice yesterday"' if is_pidgin else '"I sold rice yesterday" — backdate')
+
+    if not tips:
+        return get_response("help", lang)
+
+    header = "Here na some things I fit do for you:" if is_pidgin else "Here are some things I can do for you:"
+    tip_list = "\n".join(f"- {t}" for t in tips[:6])  # Max 6 tips
+    footer = "\nJust yarn to me normal!" if is_pidgin else "\nJust talk to me normally!"
+
+    return f"{header}\n\n{tip_list}{footer}"
+
+
 async def _get_discovery_hint(db, phone, lang):
     """Return a hint about the most relevant undiscovered feature."""
     # Check what features they've used (one query each, lightweight)

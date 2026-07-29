@@ -13,10 +13,8 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
 
 ## High Priority
 
-- [ ] **No batch/end-of-day recording for high-volume shops**
-  Small shops with 30-50 daily transactions (200-naira soft drinks, biscuits) can't send a voice note per sale. Need support for: "Today I sold 20 coke at 200, 15 biscuit at 100, 10 soap at 300" as a single batch. multi_sale partially handles this but needs explicit batch UX and messaging.
-  *Affected user: Iya Kemi. Only captured ~40% of her revenue.*
-  Files: `app/nlu.py`, `app/handlers.py` (handle_multi_sale)
+- [x] **No batch/end-of-day recording for high-volume shops** (FIXED)
+  multi_sale now handles batch recording with optional prices: "I sold 20 coke, 15 biscuit, 10 soap" — looks up stored prices, reports items needing pricing. NLU updated to allow omitting prices.
 
 - [x] **Can't fix old mistakes — undo/edit only targets the most recent entry** (FIXED)
   Undo and edit now accept optional `when` field: "delete the rice sale from yesterday". Combined with product filter for precise targeting.
@@ -37,15 +35,11 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
 - [x] **Improve voice name correction flow** (FIXED)
   Covered by the critical fix above — hint changed + duplicate detection added.
 
-- [ ] **Product name drift across voice sessions**
-  User says "coke" one day, "coca cola" the next, "soft drink" another time. Gemini normalizes some but not all. Creates duplicate products in the database. The NLU prompt has normalization rules but they don't cover all cases. Consider post-NLU product name canonicalization or merging.
-  *Affected user: Iya Kemi.*
-  Files: `app/nlu.py` (SYSTEM_PROMPT normalization rules), `app/handlers.py` (_find_product)
+- [x] **Product name drift across voice sessions** (FIXED)
+  Added post-NLU alias mapping table (`_PRODUCT_ALIASES`) for common variants. Expanded NLU normalization rules. Combined with merge_products feature for manual cleanup.
 
-- [ ] **Report page not optimized for small screens**
-  The HTML report works but tables are hard to read on budget Android phones with small screens. Needs mobile-first responsive layout, larger text, and simpler formatting.
-  *Affected user: Mama Blessing.*
-  Files: `app/report.py` (render_report_html)
+- [x] **Report page not optimized for small screens** (FIXED)
+  Added `box-sizing: border-box`, base font 16px, scrollable `.table-wrap` divs, table font bumped to 0.9rem, tighter padding for mobile readability.
 
 ---
 
@@ -61,20 +55,14 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
   *Affected user: Emeka.*
   Files: `app/handlers.py`, `app/database.py` (products table)
 
-- [ ] **No payment summary / payment history view**
-  "How much did customers pay me this week?" has no direct answer. Payments are embedded in the credit flow. Need a standalone payment summary.
-  *Affected user: Emeka.*
-  Files: `app/handlers.py`, `app/nlu.py`
+- [x] **No payment summary / payment history view** (FIXED)
+  New `check_payments` handler with period filtering and per-customer breakdown. NLU action 22 added.
 
-- [ ] **Low-literate users don't discover most features**
-  Iya Kemi discovered only 5 of 15+ features after 3 months. Progressive hints help moderate users but the lowest-literacy users ignore text hints in voice replies. Consider: audio-only tips, simpler hint language, or a guided "what else can I do?" flow.
-  *Affected user: Iya Kemi.*
-  Files: `app/responses.py` (all hint templates), `app/voice.py` (_make_speakable)
+- [x] **Low-literate users don't discover most features** (FIXED)
+  New `what_can_you_do` handler shows personalized list of unused features. Pre-classified for "what else" / "what can you do". Shows max 6 simple tips based on what the user hasn't tried yet.
 
-- [ ] **No way to merge duplicate products**
-  If "coke" and "coca cola" both exist as separate products, there's no way to merge them. Need: "coke and coca cola are the same thing" or an admin-level product merge.
-  *Affected user: Iya Kemi.*
-  Files: `app/handlers.py`, `app/nlu.py`
+- [x] **No way to merge duplicate products** (FIXED)
+  New `merge_products` handler: "coke and coca cola are the same thing" merges all sales, stock entries, and quantities. NLU action 24 added.
 
 - [ ] **Evening nudge timing not configurable**
   The cron endpoint fires when the external service calls it. Users in different time zones or with different shop hours can't customize when they get nudged.
@@ -86,13 +74,13 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
 ## Feature Requests (from simulated users)
 
 - [x] **Profit tracking** — "How much profit did I make today?" (Emeka) (DONE)
-- [ ] **Batch recording** — "I sold 20 coke, 15 biscuit, 10 soap today" as end-of-day summary (Iya Kemi)
+- [x] **Batch recording** — "I sold 20 coke, 15 biscuit, 10 soap today" as end-of-day summary (Iya Kemi) (DONE)
 - [x] **Morning reminder** — prompt at shop opening time (Mama Blessing) (DONE)
-- [ ] **Inventory alerts** — "Your cement is running low, only 10 bags left" sent proactively (Emeka)
-- [ ] **Payment summary** — "How much did people pay me this week?" (Emeka)
-- [ ] **Product merge** — "Coke and Coca Cola are the same thing" (Iya Kemi)
+- [x] **Inventory alerts** — "Your cement is running low, only 10 bags left" sent proactively (Emeka) (DONE)
+- [x] **Payment summary** — "How much did people pay me this week?" (Emeka) (DONE)
+- [x] **Product merge** — "Coke and Coca Cola are the same thing" (Iya Kemi) (DONE)
 - [ ] **Photo receipt** — take a photo of a handwritten receipt and have Tijah extract it (Mama Blessing)
-- [ ] **Debt aging** — "Mama Joy has owed you for 30 days" warning (Emeka)
+- [x] **Debt aging** — "Mama Joy has owed you for 30 days" warning (Emeka) (DONE)
 
 ---
 

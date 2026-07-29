@@ -21,8 +21,12 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(hi|hello|hey|good (morning|afternoon|evening)|how far|what.s up|sup|howdy)$",
      {"action": "greeting"}),
 
+    # What can you do (personalized feature list)
+    (r"^(what (else )?(can you do|you fit do)|wetin (else )?you fit do|what else|wetin else)$",
+     {"action": "what_can_you_do"}),
+
     # Help
-    (r"^(help|what can you do|how (does|do) (this|it) work|menu|commands?)$",
+    (r"^(help|how (does|do) (this|it) work|menu|commands?)$",
      {"action": "help"}),
 
     # Feedback / complaints (bare trigger — handler asks for details)

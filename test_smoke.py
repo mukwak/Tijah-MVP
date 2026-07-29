@@ -241,6 +241,24 @@ async def run():
     check("Name corrected to Sisi Tolu",
           len(credits) == 1 and credits[0][0] == "Sisi Tolu")
 
+    # --- TEST 19: What can you do (personalized feature discovery) ---
+    print("\n--- TEST 19: What can you do (feature discovery) ---")
+    pre = preclassify("what can you do")
+    check("Pre-classifies 'what can you do'", pre and pre["action"] == "what_can_you_do")
+    pre2 = preclassify("what else")
+    check("Pre-classifies 'what else'", pre2 and pre2["action"] == "what_can_you_do")
+    result = await _route_intent(PHONE, {"action": "what_can_you_do"}, "english")
+    check("Shows feature tips", "can do" in result.lower() or "sold" in result.lower() or "transport" in result.lower())
+    check("Response is not empty", len(result) > 20)
+
+    # --- TEST 20: Nudge templates (debt aging + low stock) ---
+    print("\n--- TEST 20: Nudge templates (debt aging + low stock) ---")
+    debt_msg = get_response("nudge_debt_aging", "english", customer="Mama Joy", amount="5,000", days=21)
+    check("Debt aging has customer name", "Mama Joy" in debt_msg)
+    check("Debt aging has days", "21" in debt_msg)
+    low_stock_msg = get_response("nudge_low_stock", "english", items="cement (3 bag left)")
+    check("Low stock has items", "cement" in low_stock_msg)
+
     # === CLEANUP ===
     await close_db()
     pathlib.Path("test_smoke.db").unlink(missing_ok=True)

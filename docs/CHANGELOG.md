@@ -25,6 +25,47 @@
 - New `/cron/morning-nudge?token=X` endpoint sends "Good morning! Ready to record today's sales" to active users
 - Complements the existing evening nudge to prime daily recording habits
 
+### Product Name Drift Prevention
+- Added post-NLU alias mapping table (`_PRODUCT_ALIASES`) covering 15+ common variants (coca cola→coke, sachet water→water, etc.)
+- Expanded NLU normalization rules for Nigerian market products
+- `_normalize_product_name` now applies alias mapping after stripping unit qualifiers
+
+### Report Mobile Optimization
+- Added `box-sizing: border-box`, base font 16px, scrollable `.table-wrap` divs
+- Table font bumped to 0.9rem with tighter padding for budget Android screens
+- Applied to both shop report and per-customer receipt pages
+
+### Payment Summary
+- New `check_payments` handler: "How much did people pay me this week?"
+- Per-customer breakdown by period (today/yesterday/week/month)
+- NLU action 22 (CHECK_PAYMENTS) added
+
+### Product Merge
+- New `merge_products` handler: "Coke and coca cola are the same thing"
+- Merges all sales, stock entries, and stock quantities from old product into new
+- Deletes the old product record after merging
+- NLU action 24 (MERGE_PRODUCTS) added
+
+### Batch Recording Improvements
+- `handle_multi_sale` now handles items without prices — looks up stored prices automatically
+- Reports items that need pricing separately so user can set prices and re-record
+
+### Feature Discoverability ("What can you do?")
+- New `what_can_you_do` handler shows personalized list of unused features
+- Pre-classified for "what else" / "what can you do" / "wetin you fit do"
+- Shows max 6 simple tips based on what the user hasn't tried yet
+- NLU action 11b added
+
+### Debt Aging in Evening Nudge
+- Evening nudge now mentions the oldest unpaid debt (>14 days old)
+- "Mama Joy has owed you 5,000 naira for 21 days" with prompt to send reminder
+- Surfaces the credit reminder feature naturally
+
+### Low Stock Alerts in Evening Nudge
+- Evening nudge now warns about products with stock ≤ 5 units
+- "Low stock alert: cement (3 bag left). Time to restock!"
+- Only triggers for products that have stock tracking enabled
+
 ---
 
 ## Alpha 0.3 - July 2026
