@@ -115,10 +115,15 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         elif row and row[0] <= 3:
             low_stock_msg = "\n" + get_response("stock_low", lang, product=product, quantity=_fmt(row[0]), unit=row[1])
 
+    # Show unit price when quantity > 1 so users can catch pricing mistakes
+    price_detail = ""
+    if quantity > 1:
+        price_detail = f" at {_fmt(unit_price)} each"
+
     result = get_response(
         "sale_recorded", lang,
         quantity=_fmt(quantity), unit=unit, product=product, total=_fmt(total),
-        credit_note=credit_note,
+        credit_note=credit_note, price_detail=price_detail,
     ) + low_stock_msg
 
     # One contextual nudge — the natural next step for this action

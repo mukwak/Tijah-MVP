@@ -138,6 +138,13 @@ RULES:
 - If you can calculate total from quantity * unit_price, do so
 - If only total is given, set unit_price = total / quantity
 - If quantity not mentioned, assume 1
+- PRICE AMBIGUITY: "3 bags for 25 thousand" is ambiguous — it could mean 25k total OR 25k each.
+  Follow these rules:
+  - "X each" / "X per bag" / "X one" = unit_price (multiply by quantity for total)
+  - "X total" / "X altogether" / "all for X" = total (divide by quantity for unit_price)
+  - "I sold 3 bags of rice, 25 thousand" with no "each"/"total" = treat as TOTAL (25k total, not each)
+  - "I sold 3 bags of rice at 25 thousand" / "for 25 thousand each" = unit_price
+  - When truly ambiguous (no "each"/"total"/"at" keyword), set "price_ambiguous": true so the app can confirm
 - "when" field: "today" (default), "yesterday", or an offset like "-2" for 2 days ago
 - ALWAYS include "detected_language" in your response: "pidgin" ONLY if the user clearly spoke Nigerian Pidgin, otherwise "english". When unsure, use "english".
 

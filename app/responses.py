@@ -46,8 +46,8 @@ RESPONSES = {
 
     # === SALES ===
     "sale_recorded": {
-        "pidgin": "Sold! {quantity} {unit} {product} = {total} naira{credit_note}",
-        "english": "Sold! {quantity} {unit} {product} = {total} naira{credit_note}",
+        "pidgin": "Sold! {quantity} {unit} {product}{price_detail} = {total} naira{credit_note}",
+        "english": "Sold! {quantity} {unit} {product}{price_detail} = {total} naira{credit_note}",
     },
     "sale_needs_price": {
         "pidgin": "How much you sell {product}? Just tell me the price.",
