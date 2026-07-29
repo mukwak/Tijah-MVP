@@ -1,6 +1,6 @@
 # Tijah - Product Requirements Document
 
-**Version:** 0.1 (Alpha)
+**Version:** 0.3 (Alpha)
 **Last updated:** July 2026
 
 ---
@@ -78,10 +78,10 @@ Records business expenses by category (rent, transport, electricity, supplies, e
 An evening summary sent proactively via cron to active users. Shows what they recorded today and prompts for anything missed. Keeps users engaged without requiring them to remember to check.
 
 ### 4.9 Undo / Edit
-"Cancel that" undoes the last action. Users can also correct quantities and amounts.
+"Cancel that" undoes the last action. "Undo the rice sale" targets a specific product. Users can also correct quantities and amounts ("change the rice to 4 bags" edits the most recent rice sale).
 
 ### 4.10 Voice In, Voice Out
-If the user sends a voice note, Tijah replies with both text and a voice note (using natural Nigerian English TTS). The text reply echoes back what was heard so the user can verify accuracy.
+If the user sends a voice note, Tijah replies with both text and a voice note (using natural Nigerian English TTS). The text reply echoes back what was heard so the user can verify accuracy. For credit operations, Tijah prompts voice users to verify or correct customer names to prevent Whisper transcription errors from creating wrong records.
 
 ### 4.11 Bilingual Support
 Defaults to English. Switches to Pidgin when the user speaks Pidgin. User can also explicitly switch ("speak pidgin" / "speak english").
@@ -92,7 +92,7 @@ Defaults to English. Switches to Pidgin when the user speaks Pidgin. User can al
 - Render free tier: cold start up to ~60 seconds after 15 min idle
 - Neon free tier: 0.5 GB storage, DB suspends after 5 min idle (auto-reconnects)
 - No image/document/location message support (text and voice only)
-- No automated tests (manual testing only via `test_local.py` and live WhatsApp)
+- Smoke test suite (`test_smoke.py`, 46 tests) covers all features; no automated integration tests yet
 
 ## 6. Non-Goals (Alpha)
 
@@ -139,7 +139,7 @@ Defaults to English. Switches to Pidgin when the user speaks Pidgin. User can al
 
 | Risk | Mitigation |
 |------|-----------|
-| Whisper misunderstands Nigerian accents/Pidgin | Prompt engineering; echo-back for user verification |
+| Whisper misunderstands Nigerian accents/Pidgin | Prompt tuned with Nigerian names/prefixes; echo-back for verification; voice name check hints for credit operations |
 | Cold start latency on Render free tier | Warn users; upgrade to paid tier at scale |
 | Users send unexpected message types (images, locations) | Graceful fallback responses; never leave user hanging |
 | Credit disputes ("I never owe am") | Per-customer receipt link as proof; read-only shareable report |

@@ -39,6 +39,8 @@ Try each task below. After each one, note: did it work? Was anything confusing?
 
 ### 7. Fix a mistake
 - "Cancel that" or "Undo"
+- "Undo the rice sale" (targets a specific product)
+- "Change the rice to 4 bags" (edit a specific sale)
 
 ### 8. Get your report
 - Say "my report" — Tijah sends a link. Open it in your browser.

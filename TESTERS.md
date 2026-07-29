@@ -34,7 +34,9 @@ Talk normally, in English or Pidgin. Voice notes work - just press the mic and t
 
 **Fixing mistakes:**
 - "Cancel that" / "Undo"
+- "Undo the rice sale" (targets a specific product)
 - "It was 3 bags, not 5"
+- "Change the rice to 4 bags"
 
 **Your full records:**
 - Say "my report" and Tijah sends you a private link showing everything - all your sales, stock, credits and expenses. Open it in your browser anytime. It updates automatically.

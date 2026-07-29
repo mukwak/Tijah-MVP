@@ -145,8 +145,8 @@ The NLU detects whether the user is speaking English or Pidgin and responds in k
 **6. Stateless handlers, stateful undo**
 Each handler is a pure function of (phone, intent, language). Undo reverses the last action by deleting the recorded row and restoring stock/credit state inline.
 
-**7. Word-boundary product matching**
-Product name lookup uses exact match first, then word-boundary fuzzy matching for names 4+ characters. This prevents "rice" from colliding with "fried rice" while still allowing "cement" to match "cement bag".
+**7. Word-boundary product matching with normalization**
+Product name lookup normalizes input first (strips unit qualifiers like "bag of", "crate of"), then tries exact match, then word-boundary fuzzy matching for names 4+ characters. This prevents "rice" from colliding with "fried rice", "bag of rice" from creating a duplicate of "rice", while still allowing "cement" to match "cement bag".
 
 **8. Helpfulness-first onboarding**
 New users are NOT blocked with a welcome message before their first action is processed. If they send a business action (sale, credit), it's handled first and a brief intro is appended. If they send a greeting, the welcome IS the response.

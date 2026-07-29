@@ -1,5 +1,23 @@
 # Changelog
 
+## Alpha 0.3 - July 2026
+
+### Voice Name Accuracy
+- Whisper prompt enhanced with Nigerian name prefixes (Mama, Alhaji, Brother, Sister, Chief, etc.) and 20 common Nigerian names to reduce transcription errors
+- Voice name verification: when a voice user records credit for a NEW customer, Tijah hints "I heard X — if that's wrong, type the correct spelling"
+- Voice payment lookup: when a voice user's customer name isn't found, Tijah suggests typing the name instead
+
+### Product Name Normalization
+- New `_normalize_product_name()` strips unit qualifiers before matching — "bag of rice" → "rice", "crate of minerals" → "minerals"
+- Prevents NLU-generated verbose product names from creating duplicate products in the database
+
+### Edit & Undo by Product
+- `handle_edit_last` now accepts an optional `product` field — "change the rice to 4 bags" targets the most recent rice sale, not just the most recent sale overall
+- `handle_undo` now accepts an optional `product` field — "undo the cement sale" deletes only the matching product's sale
+- NLU prompt updated to extract product name for edit_last and undo actions
+
+---
+
 ## Alpha 0.2 - July 2026
 
 ### Onboarding (rewritten)
