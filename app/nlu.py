@@ -120,7 +120,17 @@ ACTIONS you can return:
     {"action": "set_shop_name", "name": "Mama T Store"}
     Triggers: "my shop name is X", "my shop name na X", "call my shop X", "the shop is called X"
 
-22. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
+22. CHECK_PAYMENTS - User wants to see payment summary (how much did people pay me)
+    {"action": "check_payments", "period": "today"}
+    Triggers: "how much did people pay me", "who paid me today", "payment summary", "show me payments this week"
+    period: "today", "yesterday", "week", "month"
+
+24. MERGE_PRODUCTS - User wants to combine two product names that are the same thing
+    {"action": "merge_products", "old_name": "coca cola", "new_name": "coke"}
+    Triggers: "coke and coca cola are the same thing", "merge coca cola into coke", "coca cola is the same as coke"
+    The old_name is merged INTO the new_name (new_name is kept).
+
+25. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
     {"action": "customer_statement", "customer": "Mama Joy"}
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"
     This is NOT check_credits. Use customer_statement when the user wants a shareable link/receipt/proof for a customer.

@@ -458,6 +458,46 @@ async def handle_check_credits(phone: str, data: dict, lang: str) -> str:
     return result
 
 
+async def handle_check_payments(phone: str, data: dict, lang: str) -> str:
+    """Show payment summary for a period."""
+    db = await get_db()
+    period = data.get("period", "today")
+
+    if period == "today":
+        date_filter = "date(created_at) = date('now', '+1 hours')"
+        period_label = "today"
+    elif period == "yesterday":
+        date_filter = "date(created_at) = date('now', '+1 hours', '-1 day')"
+        period_label = "yesterday"
+    elif period == "week":
+        date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
+        period_label = "this week"
+    else:
+        date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
+        period_label = "this month"
+
+    cursor = await db.execute(
+        f"""SELECT MIN(customer), SUM(amount) FROM payments
+            WHERE phone = ? AND {date_filter}
+            GROUP BY LOWER(customer)
+            ORDER BY SUM(amount) DESC""",
+        (phone,),
+    )
+    rows = await cursor.fetchall()
+
+    if not rows:
+        if lang == "pidgin":
+            return f"Nobody pay you {period_label}."
+        return f"No payments received {period_label}."
+
+    total = sum(r[1] for r in rows)
+    payment_list = "\n".join(f"  {r[0]}: {_fmt(r[1])} naira" for r in rows)
+
+    if lang == "pidgin":
+        return f"People wey pay you {period_label}:\n{payment_list}\n\nTotal: {_fmt(total)} naira"
+    return f"Payments received {period_label}:\n{payment_list}\n\nTotal: {_fmt(total)} naira"
+
+
 async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     description = data.get("description", "expense")
@@ -1330,6 +1370,60 @@ async def handle_customer_statement(phone: str, data: dict, lang: str) -> str:
     token = await get_or_create_customer_receipt_token(phone, customer)
     url = f"{BASE_URL.rstrip('/')}/receipt/{token}"
     return get_response("customer_receipt_link", lang, customer=customer, url=url)
+
+
+async def handle_merge_products(phone: str, data: dict, lang: str) -> str:
+    """Merge two product names — combine sales, stock, etc. under one name."""
+    db = await get_db()
+    old_name = _normalize_product_name(data.get("old_name", ""))
+    new_name = _normalize_product_name(data.get("new_name", ""))
+
+    if not old_name or not new_name:
+        if lang == "pidgin":
+            return "Tell me like: \"coke and coca cola na the same thing\""
+        return "Tell me like: \"coke and coca cola are the same thing\""
+
+    # Find both products
+    old_product = await _find_product(db, phone, old_name)
+    new_product = await _find_product(db, phone, new_name)
+
+    if not old_product:
+        if lang == "pidgin":
+            return f"I no see \"{old_name}\" for your products."
+        return f"I can't find \"{old_name}\" in your products."
+
+    if not new_product:
+        # Just rename the old product
+        await db.execute("UPDATE products SET name = ? WHERE id = ?", (new_name, old_product[0]))
+        await db.execute("UPDATE sales SET product_name = ? WHERE phone = ? AND product_id = ?",
+                         (new_name, phone, old_product[0]))
+        await db.execute("UPDATE stock_entries SET product_name = ? WHERE phone = ? AND product_id = ?",
+                         (new_name, phone, old_product[0]))
+        await db.commit()
+        if lang == "pidgin":
+            return f"I don change \"{old_name}\" to \"{new_name}\"."
+        return f"Renamed \"{old_name}\" to \"{new_name}\"."
+
+    # Both exist — merge old into new
+    old_id, new_id = old_product[0], new_product[0]
+
+    # Move sales and stock entries to the new product
+    await db.execute("UPDATE sales SET product_id = ?, product_name = ? WHERE phone = ? AND product_id = ?",
+                     (new_id, new_name, phone, old_id))
+    await db.execute("UPDATE stock_entries SET product_id = ?, product_name = ? WHERE phone = ? AND product_id = ?",
+                     (new_id, new_name, phone, old_id))
+
+    # Combine stock quantities
+    old_qty = (await (await db.execute("SELECT stock_qty FROM products WHERE id = ?", (old_id,))).fetchone())[0]
+    await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (old_qty, new_id))
+
+    # Delete the old product
+    await db.execute("DELETE FROM products WHERE id = ?", (old_id,))
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"I don join \"{old_name}\" with \"{new_name}\". All record now dey under \"{new_name}\"."
+    return f"Merged \"{old_name}\" into \"{new_name}\". All records are now under \"{new_name}\"."
 
 
 # ---- Helpers ----

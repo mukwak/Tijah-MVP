@@ -370,6 +370,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "feedback": handlers.handle_feedback,
         "set_shop_name": handlers.handle_set_shop_name,
         "customer_statement": handlers.handle_customer_statement,
+        "check_payments": handlers.handle_check_payments,
+        "merge_products": handlers.handle_merge_products,
     }
 
     handler = handler_map.get(action)
