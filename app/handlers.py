@@ -657,6 +657,23 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
         )
         result += get_response("daily_summary_top", lang, top_products=top_products)
 
+    # Profit estimate: revenue minus cost-of-goods-sold (only if cost data exists)
+    # Qualify created_at with table alias to avoid ambiguity in the JOIN
+    profit_date_filter = date_filter.replace("created_at", "s.created_at")
+    cursor = await db.execute(
+        f"""SELECT COALESCE(SUM(s.quantity * p.cost_price), 0)
+            FROM sales s JOIN products p ON s.product_id = p.id
+            WHERE s.phone = ? AND {profit_date_filter} AND p.cost_price > 0""",
+        (phone,),
+    )
+    cost_of_goods = (await cursor.fetchone())[0]
+    if cost_of_goods > 0 and sales_total > 0:
+        profit = sales_total - cost_of_goods - expense_total
+        if lang == "pidgin":
+            result += f"\nYour gain (after cost and expenses): {_fmt(profit)} naira."
+        else:
+            result += f"\nProfit (after cost and expenses): {_fmt(profit)} naira."
+
     # Simple insight: compare with the previous period
     prev_filters = {
         "today": ("date(created_at) = date('now', '+1 hours', '-1 day')", "Yesterday"),
