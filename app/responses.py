@@ -341,6 +341,10 @@ RESPONSES = {
         "pidgin": "Good evening! You never record anything today. Wetin you sell?",
         "english": "Good evening! You haven't recorded anything today. What did you sell?",
     },
+    "nudge_morning": {
+        "pidgin": "Good morning! Ready to record today sales. Just yarn to me when you sell something.",
+        "english": "Good morning! Ready to record today's sales. Just tell me when you sell something.",
+    },
 
     # === PROGRESSIVE DISCOVERY HINTS ===
     "hint_discover_expenses": {

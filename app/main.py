@@ -179,6 +179,38 @@ async def daily_nudge(request: Request):
     return {"sent": sent, "total_active": len(active_shops)}
 
 
+@app.get("/cron/morning-nudge")
+async def morning_nudge(request: Request):
+    """Send a morning reminder to active users. Call from external cron at ~8am WAT."""
+    token = request.query_params.get("token", "")
+    if not ADMIN_TOKEN or not hmac.compare_digest(token, ADMIN_TOKEN):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    db = await get_db()
+
+    # Find shops active in the last 7 days
+    cursor = await db.execute(
+        """SELECT DISTINCT s.phone, s.language FROM shops s
+           WHERE EXISTS (
+               SELECT 1 FROM sales WHERE sales.phone = s.phone
+               AND sales.created_at >= datetime('now', '+1 hours', '-7 days')
+           )"""
+    )
+    active_shops = await cursor.fetchall()
+
+    sent = 0
+    for shop in active_shops:
+        phone, lang = shop[0], shop[1] or "english"
+        msg = get_response("nudge_morning", lang)
+        try:
+            await send_text(phone, msg)
+            sent += 1
+        except Exception as e:
+            log.error(f"Morning nudge failed for {phone}: {e}")
+
+    return {"sent": sent, "total_active": len(active_shops)}
+
+
 async def _process_message(message: dict):
     """Process a single incoming WhatsApp message."""
     msg_id = message.get("id", "")
