@@ -76,15 +76,17 @@ ACTIONS you can return:
     Triggers: "remind Mama Joy", "send reminder to Mama Joy", "message for Mama Joy about her debt", "tell Mama Joy she owes me"
 
 15. UNDO - User wants to cancel/undo/correct the last thing they recorded
-    {"action": "undo", "product": null}
+    {"action": "undo", "product": null, "when": null}
     Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "I made a mistake", "no no no", "wrong"
     If the user mentions a product ("undo the rice sale", "cancel the cement"), include it in "product" so we undo that specific sale.
+    If the user mentions a time ("delete the sale from yesterday", "undo what I recorded 2 days ago"), include "when" ("yesterday", "-2", etc.).
 
 15b. EDIT_LAST - User wants to correct/change a detail of a recent sale (not delete, just fix)
-    {"action": "edit_last", "field": "quantity", "new_value": 3, "product": null}
+    {"action": "edit_last", "field": "quantity", "new_value": 3, "product": null, "when": null}
     field: "quantity", "price"/"unit_price", "total", "product"
     Triggers: "change that to 3 bags", "it was 5 thousand not 3", "the price was 2 thousand", "no it was 3 bags not 5"
     If the user mentions a product ("change the rice to 4 bags"), include it in "product" so we edit that specific sale.
+    If the user mentions a time ("fix yesterday's rice sale"), include "when".
 
 16. CONFIRM_YES - User is confirming something (yes, correct, that's the one, na dem, yes na him/her)
     {"action": "confirm_yes"}

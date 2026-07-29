@@ -1059,19 +1059,24 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
             return "Wetin you wan change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
         return "What do you want to change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
 
-    # Get the last sale, optionally filtering by product
+    # Get the last sale, optionally filtering by product and/or time
     product = data.get("product")
+    when_filter = data.get("when")
+    where = "phone = ?"
+    params = [phone]
     if product:
         product = _normalize_product_name(product)
-        cursor = await db.execute(
-            "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? AND LOWER(product_name) = LOWER(?) ORDER BY created_at DESC LIMIT 1",
-            (phone, product),
-        )
-    else:
-        cursor = await db.execute(
-            "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
-            (phone,),
-        )
+        where += " AND LOWER(product_name) = LOWER(?)"
+        params.append(product)
+    if when_filter and when_filter != "today":
+        resolved = _resolve_when(when_filter)
+        if resolved:
+            where += " AND date(created_at) = ?"
+            params.append(resolved[:10])
+    cursor = await db.execute(
+        f"SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE {where} ORDER BY created_at DESC LIMIT 1",
+        tuple(params),
+    )
     row = await cursor.fetchone()
     if not row:
         if lang == "pidgin":
@@ -1118,6 +1123,17 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     if product_filter:
         product_filter = _normalize_product_name(product_filter)
 
+    # Optional time filter: "undo the sale from yesterday"
+    when_filter = data.get("when")
+    when_date = None
+    if when_filter and when_filter != "today":
+        resolved = _resolve_when(when_filter)
+        if resolved:
+            when_date = resolved[:10]  # just the date part YYYY-MM-DD
+    elif when_filter == "today" or not when_filter:
+        # No date filter — search all time
+        when_date = None
+
     # Find the most recent action across all tables
     tables = [
         ("sales", "product_name", "total", "quantity", "product_id"),
@@ -1141,6 +1157,9 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         if product_filter and desc_col == "product_name":
             where += " AND LOWER(product_name) = LOWER(?)"
             params.append(product_filter)
+        if when_date:
+            where += " AND date(created_at) = ?"
+            params.append(when_date)
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amount_col}, created_at"
             + (f", {qty_col}, {pid_col}" if qty_col else "")
