@@ -135,10 +135,18 @@ RULES:
   "wetin I spend" = check expenses
 - PRODUCT NAME NORMALIZATION - always use the simplest common name:
   "pure water" / "sachet water" / "table water" = "water"
-  "minerals" / "soft drink" / "coke" / "fanta" / "soda" = use the specific brand if mentioned, else "soft drink"
+  "minerals" / "soft drink" / "soda" / "fizzy drink" = "soft drink" (unless a specific brand is named)
+  "coke" / "coca cola" / "coca-cola" = "coke"
+  "fanta" / "mirinda" = keep the specific brand name
+  "pepsi" = "pepsi"
   "groundnut" / "peanut" = "groundnut"
   "garri" / "gari" = "garri"
-  Use lowercase singular for all product names
+  "indomie" / "noodles" / "instant noodles" = "indomie"
+  "peak milk" / "tin milk" / "evaporated milk" = "peak milk"
+  "milo" / "beverage" = "milo" (if specifically milo)
+  "bread" / "agege bread" / "sliced bread" = "bread"
+  "cement" / "dangote cement" / "bua cement" = "cement" (unless user tracks multiple brands)
+  Use lowercase singular for all product names. Strip unit words: "bag of rice" → "rice", "crate of coke" → "coke"
 - If you can calculate total from quantity * unit_price, do so
 - If only total is given, set unit_price = total / quantity
 - If quantity not mentioned, assume 1

@@ -1334,11 +1334,25 @@ async def handle_customer_statement(phone: str, data: dict, lang: str) -> str:
 
 # ---- Helpers ----
 
-def _normalize_product_name(name: str) -> str:
-    """Strip common qualifiers that the NLU adds but don't belong in the product name.
+# Common product aliases — maps variant names to canonical form.
+# Only used as a fallback after exact/fuzzy match fails.
+_PRODUCT_ALIASES = {
+    "coca cola": "coke", "coca-cola": "coke",
+    "minerals": "soft drink", "soda": "soft drink", "fizzy drink": "soft drink",
+    "peanut": "groundnut",
+    "gari": "garri",
+    "noodles": "indomie", "instant noodles": "indomie",
+    "sachet water": "water", "pure water": "water", "table water": "water",
+    "tin milk": "peak milk", "evaporated milk": "peak milk",
+    "agege bread": "bread", "sliced bread": "bread",
+}
 
-    E.g. "bag of rice" → "rice", "crate of minerals" → "minerals",
-         "bags of cement" → "cement".
+
+def _normalize_product_name(name: str) -> str:
+    """Strip common qualifiers and apply alias normalization.
+
+    E.g. "bag of rice" → "rice", "crate of minerals" → "soft drink",
+         "bags of cement" → "cement", "coca cola" → "coke".
     """
     s = name.lower().strip()
     # Strip leading unit qualifiers: "bag of rice" → "rice"
@@ -1346,7 +1360,9 @@ def _normalize_product_name(name: str) -> str:
         r'^(bags?|crates?|cartons?|bottles?|pieces?|packs?|rolls?|kegs?|sachets?|dozens?|pairs?|bundles?|tins?|cups?)\s+of\s+',
         '', s,
     )
-    return s.strip()
+    s = s.strip()
+    # Apply alias mapping
+    return _PRODUCT_ALIASES.get(s, s)
 
 
 async def _find_product(db, phone, name):
