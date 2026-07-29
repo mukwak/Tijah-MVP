@@ -1,5 +1,6 @@
 """Business logic handlers for each intent."""
 import json
+import re
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.responses import get_response
@@ -130,7 +131,7 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         if product_sales <= 2:
             result += get_response("hint_stock_unknown", lang, product=product)
     else:
-        # Rotate one discovery hint over the first few sales
+        # Rotate discovery hints as the user records more sales
         sale_count = (await (await db.execute(
             "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
         )).fetchone())[0]
@@ -139,7 +140,17 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         elif sale_count == 2:
             result += get_response("hint_undo", lang)
         elif sale_count == 3:
-            result += get_response("hint_after_expense", lang)
+            result += get_response("hint_discover_expenses", lang)
+        elif sale_count == 5:
+            hint = await _get_discovery_hint(db, phone, lang)
+            if hint:
+                result += hint
+        elif sale_count == 8:
+            hint = await _get_discovery_hint(db, phone, lang)
+            if hint:
+                result += hint
+        elif sale_count == 12:
+            result += get_response("hint_discover_backdate", lang)
 
     return result
 
@@ -227,12 +238,16 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
         customer=customer, amount=_fmt(amount), note=note_text,
     )
 
-    # Drip hint for new users
+    # Drip hints — credit-related discovery
     credit_count = (await (await db.execute(
         "SELECT COUNT(*) FROM credits WHERE phone = ?", (phone,)
     )).fetchone())[0]
     if credit_count <= 2:
         result += get_response("hint_after_credit", lang, customer=customer)
+    elif credit_count == 4:
+        result += get_response("hint_credit_reminder", lang, customer=customer)
+    elif credit_count == 6:
+        result += get_response("hint_discover_receipt", lang, customer=customer)
 
     return result
 
@@ -1168,11 +1183,53 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
     return summary
 
 
+async def handle_customer_statement(phone: str, data: dict, lang: str) -> str:
+    """Generate a shareable receipt/statement link for a specific customer."""
+    from app.config import BASE_URL
+    from app.report import get_or_create_customer_receipt_token
+
+    customer = data.get("customer", "")
+    if not customer:
+        if lang == "pidgin":
+            return "Who receipt you want? Tell me like: \"receipt for Mama Joy\""
+        return "Which customer? Tell me like: \"receipt for Mama Joy\""
+
+    db = await get_db()
+
+    # Normalize customer name
+    matched, match_type = await _find_similar_customer(db, phone, customer)
+    if match_type == "fuzzy":
+        data["_confirmed_customer"] = matched
+        data["_original_customer"] = customer
+        await _save_pending(db, phone, {"action": "customer_statement", "data": data, "lang": lang})
+        return get_response("confirm_customer", lang, original=customer, matched=matched)
+    if match_type == "exact":
+        customer = matched
+
+    # Check this customer actually exists in credits
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+        (phone, customer),
+    )
+    if (await cursor.fetchone())[0] == 0:
+        return get_response("customer_not_found", lang, customer=customer)
+
+    token = await get_or_create_customer_receipt_token(phone, customer)
+    url = f"{BASE_URL.rstrip('/')}/receipt/{token}"
+    return get_response("customer_receipt_link", lang, customer=customer, url=url)
+
+
 # ---- Helpers ----
 
 async def _find_product(db, phone, name):
-    """Find a product by name - exact match first, then fuzzy (contains) match."""
-    # Exact match
+    """Find a product by name - exact match first, then word-boundary fuzzy match.
+
+    Fuzzy matching only activates when the search term is 4+ characters and
+    matches as a whole word inside the stored name (or vice-versa).  This
+    prevents "rice" from matching "fried rice" while still allowing "cement"
+    to match "cement bag".
+    """
+    # Exact match (case-insensitive)
     cursor = await db.execute(
         "SELECT id, name, sell_price FROM products WHERE phone = ? AND LOWER(name) = LOWER(?)",
         (phone, name),
@@ -1181,23 +1238,30 @@ async def _find_product(db, phone, name):
     if row:
         return row
 
-    # Contains match: "rice" matches "rice bag", "bag of rice", etc.
-    cursor = await db.execute(
-        "SELECT id, name, sell_price FROM products WHERE phone = ? AND LOWER(name) LIKE ?",
-        (phone, f"%{name.lower()}%"),
-    )
-    row = await cursor.fetchone()
-    if row:
-        return row
+    # Only attempt fuzzy matching for names with 4+ characters to avoid
+    # short-name collisions ("oil" matching "foil", "rice" matching "fried rice").
+    if len(name) < 4:
+        return None
 
-    # Reverse contains: "bag of rice" matches stored "rice"
+    # Word-boundary match: the search term must appear as a complete word
+    # in the stored name, or the stored name must appear as a complete word
+    # in the search term.
+    pattern = re.compile(r'\b' + re.escape(name.lower()) + r'\b')
+
     cursor = await db.execute(
         "SELECT id, name, sell_price FROM products WHERE phone = ?",
         (phone,),
     )
     rows = await cursor.fetchall()
+
     for r in rows:
-        if r[1].lower() in name.lower():
+        stored = r[1].lower()
+        # Search term is a whole word inside stored name
+        if pattern.search(stored):
+            return r
+        # Stored name is a whole word inside search term
+        stored_pattern = re.compile(r'\b' + re.escape(stored) + r'\b')
+        if len(stored) >= 4 and stored_pattern.search(name.lower()):
             return r
 
     return None
@@ -1283,3 +1347,41 @@ async def _add_credit(db, phone, customer, amount, note=""):
            VALUES (?, ?, ?, ?)""",
         (phone, customer, amount, note),
     )
+
+
+async def _get_discovery_hint(db, phone, lang):
+    """Return a hint about the most relevant undiscovered feature."""
+    # Check what features they've used (one query each, lightweight)
+    expense_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM expenses WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if expense_count == 0:
+        return get_response("hint_discover_expenses", lang)
+
+    stock_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if stock_count == 0:
+        return get_response("hint_discover_stock", lang)
+
+    report_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM report_tokens WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if report_count == 0:
+        return get_response("hint_report", lang)
+
+    # If they have credits, suggest receipt feature
+    unsettled = (await (await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND settled = 0", (phone,)
+    )).fetchone())[0]
+    if unsettled >= 2:
+        # Get a customer name for the hint
+        cursor = await db.execute(
+            "SELECT customer FROM credits WHERE phone = ? AND settled = 0 LIMIT 1",
+            (phone,),
+        )
+        row = await cursor.fetchone()
+        if row:
+            return get_response("hint_discover_receipt", lang, customer=row[0])
+
+    return ""

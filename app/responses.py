@@ -13,20 +13,28 @@ RESPONSES = {
     # === ONBOARDING ===
     "welcome": {
         "pidgin": (
-            "Hey! I be Tijah, your shop helper.\n\n"
-            "Anytime you sell something, just send me voice note or text. I go record am for you. "
-            "You fit ask me anytime: \"wetin I sell today?\" or \"who dey owe me?\"\n\n"
-            "Small note: na only wetin you tell me I dey keep, and your record na for you alone. "
-            "This one na test version, so if something no work, just tell me \"I get complaint\".\n\n"
-            "Make we start - tell me wetin you sell today!"
+            "How far! I be Tijah, your shop helper.\n\n"
+            "Voice note or text, just tell me wetin you sell, buy, or who owe you. "
+            "Your record na private. Say \"I get complaint\" if anything no work.\n\n"
+            "Wetin you sell today?"
         ),
         "english": (
             "Hi! I'm Tijah, your shop helper.\n\n"
-            "Anytime you sell something, just send me a voice note or text. I'll record it for you. "
-            "You can ask me anytime: \"what did I sell today?\" or \"who owes me?\"\n\n"
-            "A quick note: we only keep what you tell us, and your records are private to you. "
-            "This is a test version, so if something doesn't work, just tell me \"I have a complaint\".\n\n"
-            "Let's start - tell me what you sold today!"
+            "Voice note or text - just tell me what you sell, buy, or who owes you. "
+            "Your records are private. Say \"I have a complaint\" if anything goes wrong.\n\n"
+            "What did you sell today?"
+        ),
+    },
+    "welcome_after_action": {
+        "pidgin": (
+            "\n\nBy the way - I be Tijah, your shop helper! "
+            "I go keep all your sales, stock, and credit records. "
+            "Your data na private. Just yarn to me anytime."
+        ),
+        "english": (
+            "\n\nBy the way - I'm Tijah, your shop helper! "
+            "I'll keep all your sales, stock, and credit records. "
+            "Your data is private. Just talk to me anytime."
         ),
     },
 
@@ -294,6 +302,54 @@ RESPONSES = {
     "insight_less": {
         "pidgin": "\n\n{prev_label} you do {prev_total} naira.",
         "english": "\n\n{prev_label} was {prev_total} naira.",
+    },
+
+    # === CUSTOMER RECEIPT ===
+    "customer_receipt_link": {
+        "pidgin": (
+            "Here be {customer} receipt:\n{url}\n\n"
+            "E show wetin {customer} owe and wetin e don pay. "
+            "You fit send the link give am."
+        ),
+        "english": (
+            "Here is {customer}'s receipt:\n{url}\n\n"
+            "It shows what {customer} owes and what they've paid. "
+            "You can share this link with them."
+        ),
+    },
+
+    # === DAILY NUDGE ===
+    "nudge_evening_active": {
+        "pidgin": (
+            "Good evening! Today you record {sales_count} sales = {sales_total} naira. "
+            "Well done! Anything wey you sell wey you never tell me?"
+        ),
+        "english": (
+            "Good evening! Today you recorded {sales_count} sales = {sales_total} naira. "
+            "Well done! Did you sell anything else you haven't told me?"
+        ),
+    },
+    "nudge_evening_idle": {
+        "pidgin": "Good evening! You never record anything today. Wetin you sell?",
+        "english": "Good evening! You haven't recorded anything today. What did you sell?",
+    },
+
+    # === PROGRESSIVE DISCOVERY HINTS ===
+    "hint_discover_expenses": {
+        "pidgin": "\n\nYou sabi say you fit tell me your expenses too? Like \"I spend 500 on transport\".",
+        "english": "\n\nDid you know you can track expenses too? Like \"I spent 500 on transport\".",
+    },
+    "hint_discover_stock": {
+        "pidgin": "\n\nIf you tell me when you buy stock, I go warn you before e finish. Try: \"I buy 10 bag rice\".",
+        "english": "\n\nIf you tell me when you buy stock, I'll warn you before it runs out. Try: \"I bought 10 bags of rice\".",
+    },
+    "hint_discover_receipt": {
+        "pidgin": "\n\nYou fit get receipt for any customer wey owe you. Just talk \"receipt for {customer}\".",
+        "english": "\n\nYou can get a receipt for any customer who owes you. Just say \"receipt for {customer}\".",
+    },
+    "hint_discover_backdate": {
+        "pidgin": "\n\nIf you sell something yesterday, just talk am so: \"I sell rice yesterday\".",
+        "english": "\n\nIf you sold something yesterday, just say so: \"I sold rice yesterday\".",
     },
 }
 

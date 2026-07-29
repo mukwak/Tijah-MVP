@@ -1,4 +1,5 @@
-"""Shareable web report: each shop gets a tokenized link showing all their data."""
+"""Shareable web report: each shop gets a tokenized link showing all their data.
+Also handles per-customer receipt pages for credit disputes."""
 import html
 import secrets
 
@@ -29,6 +30,42 @@ async def get_phone_by_token(token: str) -> str | None:
     cursor = await db.execute("SELECT phone FROM report_tokens WHERE token = ?", (token,))
     row = await cursor.fetchone()
     return row[0] if row else None
+
+
+# --- Customer receipt tokens ---
+
+async def get_or_create_customer_receipt_token(phone: str, customer: str) -> str:
+    """Return a receipt token for a specific customer, creating one if needed."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT token FROM customer_receipts WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+        (phone, customer),
+    )
+    row = await cursor.fetchone()
+    if row:
+        return row[0]
+    token = secrets.token_urlsafe(16)
+    await db.execute(
+        "INSERT OR IGNORE INTO customer_receipts (phone, customer, token) VALUES (?, ?, ?)",
+        (phone, customer, token),
+    )
+    await db.commit()
+    cursor = await db.execute(
+        "SELECT token FROM customer_receipts WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+        (phone, customer),
+    )
+    row = await cursor.fetchone()
+    return row[0]
+
+
+async def get_customer_by_receipt_token(token: str) -> tuple[str, str] | None:
+    """Return (phone, customer) for a receipt token, or None."""
+    db = await get_db()
+    cursor = await db.execute(
+        "SELECT phone, customer FROM customer_receipts WHERE token = ?", (token,)
+    )
+    row = await cursor.fetchone()
+    return (row[0], row[1]) if row else None
 
 
 def _fmt(num) -> str:
@@ -239,5 +276,105 @@ async def render_report_html(phone: str) -> str:
   <table><tr><th>Date</th><th>Item</th><th>Category</th><th>Amount</th></tr>{expense_rows}</table>
 </section>
 <footer>Powered by Tijah &middot; This link is private to this shop</footer>
+</body>
+</html>"""
+
+
+async def render_customer_receipt_html(phone: str, customer: str) -> str:
+    """Render a receipt page for a single customer — safe to share with the customer."""
+    db = await get_db()
+
+    # Shop name
+    cursor = await db.execute("SELECT name FROM shops WHERE phone = ?", (phone,))
+    shop = await cursor.fetchone()
+    shop_name = (shop[0] if shop and shop[0] else "Shop")
+
+    # All credits for this customer
+    cursor = await db.execute(
+        """SELECT amount, paid, note, created_at FROM credits
+           WHERE phone = ? AND LOWER(customer) = LOWER(?)
+           ORDER BY created_at ASC""",
+        (phone, customer),
+    )
+    credits = await cursor.fetchall()
+
+    # All payments from this customer
+    cursor = await db.execute(
+        """SELECT amount, note, created_at FROM payments
+           WHERE phone = ? AND LOWER(customer) = LOWER(?)
+           ORDER BY created_at ASC""",
+        (phone, customer),
+    )
+    payments = await cursor.fetchall()
+
+    total_credit = sum(float(c[0]) for c in credits)
+    total_paid = sum(float(p[0]) for p in payments)
+    balance = total_credit - total_paid
+
+    credit_rows = "".join(
+        f"<tr><td>{_e(str(c[3])[:10])}</td><td>{_e(c[2] or '-')}</td>"
+        f"<td>&#8358;{_fmt(c[0])}</td></tr>"
+        for c in credits
+    ) or '<tr><td colspan="3" class="empty">No records</td></tr>'
+
+    payment_rows = "".join(
+        f"<tr><td>{_e(str(p[2])[:10])}</td><td>&#8358;{_fmt(p[0])}</td></tr>"
+        for p in payments
+    ) or '<tr><td colspan="2" class="empty">No payments yet</td></tr>'
+
+    status_color = "#d32f2f" if balance > 0 else "#1a7f4e"
+    status_text = f"&#8358;{_fmt(balance)} owing" if balance > 0 else "All cleared"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>{_e(customer)} - Receipt from {_e(shop_name)}</title>
+<style>
+  body {{ font-family: system-ui, -apple-system, sans-serif; margin: 0; background: #f5f5f0; color: #222; }}
+  header {{ background: #1a7f4e; color: #fff; padding: 20px 16px; }}
+  header h1 {{ margin: 0; font-size: 1.3rem; }}
+  header p {{ margin: 4px 0 0; opacity: 0.85; font-size: 0.85rem; }}
+  .status {{ margin: 16px; padding: 16px; border-radius: 10px; background: #fff;
+             text-align: center; box-shadow: 0 1px 3px rgba(0,0,0,0.08); }}
+  .status .amount {{ font-size: 1.5rem; font-weight: 700; color: {status_color}; }}
+  .status .label {{ font-size: 0.85rem; color: #777; margin-top: 4px; }}
+  .summary {{ display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 0 16px; }}
+  .summary .card {{ background: #fff; border-radius: 10px; padding: 14px;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.08); text-align: center; }}
+  .summary .card .label {{ font-size: 0.7rem; color: #777; text-transform: uppercase; }}
+  .summary .card .value {{ font-size: 1.1rem; font-weight: 700; margin-top: 4px; }}
+  section {{ padding: 0 16px 16px; }}
+  h2 {{ font-size: 1rem; margin: 16px 0 8px; }}
+  table {{ width: 100%; border-collapse: collapse; background: #fff; border-radius: 10px;
+           overflow: hidden; font-size: 0.85rem; }}
+  th {{ background: #eee; text-align: left; padding: 8px; }}
+  td {{ padding: 8px; border-top: 1px solid #f0f0f0; }}
+  .empty {{ color: #999; text-align: center; }}
+  footer {{ text-align: center; color: #999; font-size: 0.75rem; padding: 20px; }}
+</style>
+</head>
+<body>
+<header>
+  <h1>{_e(shop_name)}</h1>
+  <p>Receipt for {_e(customer)}</p>
+</header>
+<div class="status">
+  <div class="amount">{status_text}</div>
+  <div class="label">Current balance</div>
+</div>
+<div class="summary">
+  <div class="card"><div class="label">Total bought</div><div class="value">&#8358;{_fmt(total_credit)}</div></div>
+  <div class="card"><div class="label">Total paid</div><div class="value">&#8358;{_fmt(total_paid)}</div></div>
+</div>
+<section>
+  <h2>Items bought</h2>
+  <table><tr><th>Date</th><th>Item</th><th>Amount</th></tr>{credit_rows}</table>
+  <h2>Payments made</h2>
+  <table><tr><th>Date</th><th>Amount</th></tr>{payment_rows}</table>
+</section>
+<footer>Powered by Tijah &middot; {_e(shop_name)}</footer>
 </body>
 </html>"""

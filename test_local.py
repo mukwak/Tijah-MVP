@@ -7,6 +7,7 @@ import asyncio
 import sys
 from app.database import get_db, close_db
 from app.nlu import parse_intent
+from app.preclassifier import preclassify
 from app.responses import get_response
 from app import handlers
 from app.main import _route_intent
@@ -60,9 +61,13 @@ async def main():
             print(f"TIJAH: Language set to {lang}\n")
             continue
 
-        # Parse intent
-        intent = await parse_intent(user_input, lang)
-        print(f"  [Intent: {intent}]")
+        # Pre-classify first (same as production flow)
+        intent = preclassify(user_input)
+        if intent:
+            print(f"  [Pre-classified: {intent}]")
+        else:
+            intent = await parse_intent(user_input, lang)
+            print(f"  [Intent: {intent}]")
 
         # Route to handler
         response = await _route_intent(TEST_PHONE, intent, lang)

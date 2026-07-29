@@ -39,6 +39,9 @@ Talk normally, in English or Pidgin. Voice notes work - just press the mic and t
 **Your full records:**
 - Say "my report" and Tijah sends you a private link showing everything - all your sales, stock, credits and expenses. Open it in your browser anytime. It updates automatically.
 
+**Customer receipt (proof of debt):**
+- "Receipt for Mama Joy" - Tijah sends a link showing only what that customer owes and has paid. You can share this link with the customer.
+
 **Language:**
 - "Speak pidgin" / "Speak english"
 

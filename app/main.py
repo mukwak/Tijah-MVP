@@ -20,11 +20,22 @@ from app.nlu import parse_intent
 from app.preclassifier import preclassify
 from app.responses import get_response
 from app.config import ADMIN_TOKEN
-from app.report import get_phone_by_token, render_report_html, render_admin_html
+from app.report import (
+    get_phone_by_token, render_report_html, render_admin_html,
+    get_customer_by_receipt_token, render_customer_receipt_html,
+)
 from app import handlers
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 log = logging.getLogger("tijah")
+
+
+def _fmt(num) -> str:
+    """Format number with commas for nudge messages."""
+    num = float(num)
+    if num == int(num):
+        return f"{int(num):,}"
+    return f"{num:,.1f}"
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -113,6 +124,61 @@ async def shop_report(token: str):
     return HTMLResponse(content=await render_report_html(phone))
 
 
+@app.get("/receipt/{token}")
+async def customer_receipt(token: str):
+    """Per-customer receipt page — safe to share with the customer."""
+    result = await get_customer_by_receipt_token(token)
+    if not result:
+        return HTMLResponse(content="<h3>Receipt not found</h3>", status_code=404)
+    phone, customer = result
+    return HTMLResponse(content=await render_customer_receipt_html(phone, customer))
+
+
+@app.get("/cron/daily-nudge")
+async def daily_nudge(request: Request):
+    """Send evening summary to active users. Call from external cron service."""
+    token = request.query_params.get("token", "")
+    if not ADMIN_TOKEN or not hmac.compare_digest(token, ADMIN_TOKEN):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    db = await get_db()
+
+    # Find shops active in the last 7 days
+    cursor = await db.execute(
+        """SELECT DISTINCT s.phone, s.language FROM shops s
+           WHERE EXISTS (
+               SELECT 1 FROM sales WHERE sales.phone = s.phone
+               AND sales.created_at >= datetime('now', '+1 hours', '-7 days')
+           )"""
+    )
+    active_shops = await cursor.fetchall()
+
+    sent = 0
+    for shop in active_shops:
+        phone, lang = shop[0], shop[1] or "english"
+
+        cursor = await db.execute(
+            "SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND date(created_at) = date('now', '+1 hours')",
+            (phone,),
+        )
+        row = await cursor.fetchone()
+        sales_count, sales_total = row[0], row[1]
+
+        if sales_count > 0:
+            msg = get_response("nudge_evening_active", lang,
+                               sales_count=sales_count, sales_total=_fmt(sales_total))
+        else:
+            msg = get_response("nudge_evening_idle", lang)
+
+        try:
+            await send_text(phone, msg)
+            sent += 1
+        except Exception as e:
+            log.error(f"Nudge failed for {phone}: {e}")
+
+    return {"sent": sent, "total_active": len(active_shops)}
+
+
 async def _process_message(message: dict):
     """Process a single incoming WhatsApp message."""
     msg_id = message.get("id", "")
@@ -134,11 +200,11 @@ async def _process_message(message: dict):
 
     is_new_user = shop is None
     if is_new_user:
-        # New user - create shop, introduce Tijah, then continue processing their message
+        # New user — create shop but DON'T send welcome yet.
+        # Process their message first (helpfulness trumps onboarding).
         await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (phone,))
         await db.commit()
         lang = "english"
-        await send_text(phone, get_response("welcome", lang))
     else:
         lang = shop[0] or "english"
 
@@ -178,6 +244,16 @@ async def _process_message(message: dict):
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
+
+    # Onboarding: fold welcome into the first response (one message, not two)
+    if is_new_user:
+        action = intent.get("action", "help")
+        if action in ("greeting", "help"):
+            # They said hi — the welcome IS the response (replaces generic greeting)
+            response_text = get_response("welcome", lang)
+        else:
+            # They jumped straight to business — be helpful first, then introduce
+            response_text += get_response("welcome_after_action", lang)
 
     # If response is a confirmation prompt, send as interactive buttons
     if any(phrase in response_text for phrase in [
@@ -257,6 +333,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "get_report": handlers.handle_get_report,
         "feedback": handlers.handle_feedback,
         "set_shop_name": handlers.handle_set_shop_name,
+        "customer_statement": handlers.handle_customer_statement,
     }
 
     handler = handler_map.get(action)

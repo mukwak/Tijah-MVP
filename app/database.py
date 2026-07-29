@@ -192,6 +192,8 @@ def _translate_sqlite_query(sql: str) -> str:
         "MAX(0, stock_qty - ?)": "GREATEST(0, stock_qty - ?)",
         "INSERT OR IGNORE INTO report_tokens (phone, token) VALUES (?, ?)":
             "INSERT INTO report_tokens (phone, token) VALUES (?, ?) ON CONFLICT (phone) DO NOTHING",
+        "INSERT OR IGNORE INTO customer_receipts (phone, customer, token) VALUES (?, ?, ?)":
+            "INSERT INTO customer_receipts (phone, customer, token) VALUES (?, ?, ?) ON CONFLICT (phone, customer) DO NOTHING",
         "INSERT OR REPLACE INTO pending_actions (phone, action_data) VALUES (?, ?)":
             "INSERT INTO pending_actions (phone, action_data) VALUES (?, ?) "
             "ON CONFLICT (phone) DO UPDATE SET action_data = EXCLUDED.action_data, "
@@ -334,6 +336,15 @@ CREATE INDEX IF NOT EXISTS idx_credits_phone ON credits(phone, customer, settled
 CREATE INDEX IF NOT EXISTS idx_products_phone ON products(phone);
 CREATE INDEX IF NOT EXISTS idx_expenses_phone_date ON expenses(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_processed_messages_created ON processed_messages(created_at);
+
+CREATE TABLE IF NOT EXISTS customer_receipts (
+    phone       TEXT NOT NULL,
+    customer    TEXT NOT NULL,
+    token       TEXT NOT NULL UNIQUE,
+    created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
+    FOREIGN KEY (phone) REFERENCES shops(phone),
+    UNIQUE(phone, customer)
+);
 """
 
 
@@ -442,4 +453,12 @@ CREATE INDEX IF NOT EXISTS idx_credits_phone ON credits(phone, customer, settled
 CREATE INDEX IF NOT EXISTS idx_products_phone ON products(phone);
 CREATE INDEX IF NOT EXISTS idx_expenses_phone_date ON expenses(phone, created_at);
 CREATE INDEX IF NOT EXISTS idx_processed_messages_created ON processed_messages(created_at);
+
+CREATE TABLE IF NOT EXISTS customer_receipts (
+    phone       TEXT NOT NULL REFERENCES shops(phone),
+    customer    TEXT NOT NULL,
+    token       TEXT NOT NULL UNIQUE,
+    created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS'),
+    UNIQUE(phone, customer)
+);
 """

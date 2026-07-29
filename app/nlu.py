@@ -84,28 +84,28 @@ ACTIONS you can return:
     field: "quantity", "price"/"unit_price", "total", "product"
     Triggers: "change that to 3 bags", "it was 5 thousand not 3", "the price was 2 thousand", "no it was 3 bags not 5"
 
-15. CONFIRM_YES - User is confirming something (yes, correct, that's the one, na dem, yes na him/her)
+16. CONFIRM_YES - User is confirming something (yes, correct, that's the one, na dem, yes na him/her)
     {"action": "confirm_yes"}
 
-16. CONFIRM_NO - User is rejecting/saying no (no, wrong person, not that one, different person, no na another person)
+17. CONFIRM_NO - User is rejecting/saying no (no, wrong person, not that one, different person, no na another person)
     {"action": "confirm_no"}
 
-17. RENAME_CUSTOMER - User wants to change/fix a customer's name in the records
+18. RENAME_CUSTOMER - User wants to change/fix a customer's name in the records
     {"action": "rename_customer", "old_name": "Mama Inkechi", "new_name": "Mama Nkechi"}
     Triggers: "change X to Y", "rename X to Y", "X name is actually Y", "correct X to Y"
 
-18. MULTI_SALE - User mentions selling MULTIPLE different products in one message
+19. MULTI_SALE - User mentions selling MULTIPLE different products in one message
     {"action": "multi_sale", "items": [
       {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
       {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000}
     ], "when": "today"}
     IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
 
-19. GET_REPORT - User wants a link to see/review all their shop records
+20. GET_REPORT - User wants a link to see/review all their shop records
     {"action": "get_report"}
     Triggers: "send me my report", "I want to see my records", "show me all my data", "shop report", "make I see everything"
 
-20. FEEDBACK - User is complaining about Tijah itself, reporting a bug, or giving feedback about the service (NOT about their shop/customers)
+21. FEEDBACK - User is complaining about Tijah itself, reporting a bug, or giving feedback about the service (NOT about their shop/customers)
     {"action": "feedback", "message": "the voice note did not play"}
     Triggers: "I have a complaint", "I get complaint", "I have feedback", "this thing no work", "you recorded it wrong and I can't fix it", "report a problem", "feedback"
     Put the user's full complaint text in "message".
@@ -113,6 +113,11 @@ ACTIONS you can return:
 21. SET_SHOP_NAME - User is telling you their shop's name
     {"action": "set_shop_name", "name": "Mama T Store"}
     Triggers: "my shop name is X", "my shop name na X", "call my shop X", "the shop is called X"
+
+22. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
+    {"action": "customer_statement", "customer": "Mama Joy"}
+    Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"
+    This is NOT check_credits. Use customer_statement when the user wants a shareable link/receipt/proof for a customer.
 
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
