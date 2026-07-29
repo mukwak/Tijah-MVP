@@ -1,5 +1,32 @@
 # Changelog
 
+## Alpha 0.4 - July 2026
+
+### Voice Name Duplicate Prevention (Critical Fix)
+- Voice name check hint now guides users to say "change X to Y" instead of re-sending the command
+- Auto-detects when a credit with the same amount but different customer name follows a voice name check — renames instead of creating a duplicate
+- Added `_peek_pending`/`_clear_pending` helpers for non-destructive pending action reads
+- Guarded `confirm_yes`/`confirm_no` against unexpected pending action types
+
+### Ambiguous Pricing Fix
+- Sale confirmation now shows unit price when quantity > 1: "Sold! 3 bag rice at 5,000 each = 15,000 naira"
+- NLU prompt updated with explicit price disambiguation rules ("each" vs "total" vs ambiguous)
+
+### Time-Range Undo & Edit
+- `handle_undo` and `handle_edit_last` now accept optional `when` field
+- "Delete the rice sale from yesterday" or "fix yesterday's cement" now works
+- NLU prompt updated to extract `when` for undo/edit_last actions
+
+### Profit/Margin in Summary
+- Daily/weekly/monthly summary now shows profit when cost data exists from stock entries
+- "Profit (after cost and expenses): X naira" — revenue minus COGS minus expenses
+
+### Morning Nudge
+- New `/cron/morning-nudge?token=X` endpoint sends "Good morning! Ready to record today's sales" to active users
+- Complements the existing evening nudge to prime daily recording habits
+
+---
+
 ## Alpha 0.3 - July 2026
 
 ### Voice Name Accuracy

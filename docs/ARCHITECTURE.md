@@ -165,6 +165,7 @@ Hints are drip-fed based on what features the user has NOT yet tried, not just m
 | GET | `/receipt/{token}` | Per-customer receipt page (HTML) |
 | GET | `/admin/{token}` | Admin dashboard (HTML) |
 | GET | `/cron/daily-nudge?token=X` | Evening summary sender (external cron) |
+| GET | `/cron/morning-nudge?token=X` | Morning reminder sender (external cron) |
 
 ## External Services
 

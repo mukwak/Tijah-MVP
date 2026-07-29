@@ -6,10 +6,8 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
 
 ## Critical
 
-- [ ] **Voice name correction creates duplicate entries**
-  When the voice name check hint fires ("I heard X — if wrong, type the correct spelling") and the user re-sends the full command with the correct name, it records a duplicate entry. The hint needs to guide users to say "the name is X" (rename) or Tijah should detect re-sends and auto-replace instead of double-recording.
-  *Affected user: Iya Kemi. Caused her to abandon credit tracking.*
-  Files: `app/handlers.py` (handle_record_credit), `app/responses.py` (hint_voice_name_check)
+- [x] **Voice name correction creates duplicate entries** (FIXED)
+  Hint now guides users to say "change X to Y". Auto-detects duplicate credits (same amount, different name) and renames instead of adding.
 
 ---
 
@@ -20,34 +18,24 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
   *Affected user: Iya Kemi. Only captured ~40% of her revenue.*
   Files: `app/nlu.py`, `app/handlers.py` (handle_multi_sale)
 
-- [ ] **Can't fix old mistakes — undo/edit only targets the most recent entry**
-  "Undo the rice sale" targets the most recent rice sale, but users can't fix something from 3 sales ago or from yesterday. Need time-range or ordinal targeting: "delete the rice sale from yesterday", "fix the second sale today".
-  *Affected user: Mama Blessing. Noticed wrong price days later, couldn't fix it.*
-  Files: `app/handlers.py` (handle_undo, handle_edit_last), `app/nlu.py`
+- [x] **Can't fix old mistakes — undo/edit only targets the most recent entry** (FIXED)
+  Undo and edit now accept optional `when` field: "delete the rice sale from yesterday". Combined with product filter for precise targeting.
 
-- [ ] **Ambiguous pricing — "3 bags for 25 thousand" (each or total?)**
-  When the user says "3 bags for 25 thousand", Tijah guesses whether it's 25k total or 25k each. Often guesses wrong. Should ask for confirmation when the math is ambiguous (quantity > 1 and a round price is given without "each"/"per").
-  *Affected user: Mama Blessing. Records were silently wrong.*
-  Files: `app/nlu.py` (SYSTEM_PROMPT), `app/handlers.py` (handle_record_sale)
+- [x] **Ambiguous pricing — "3 bags for 25 thousand" (each or total?)** (FIXED)
+  Sale confirmation now shows unit price when qty > 1: "Sold! 3 bag rice at 8,333 each = 25,000 naira". NLU prompt updated with explicit disambiguation rules.
 
 ---
 
 ## Medium Priority
 
-- [ ] **No profit/margin view in summary**
-  For products where both cost_price (from stock entry) and sell_price (from sales) exist, the daily/weekly summary should show: "Profit: X naira" (revenue minus cost-of-goods-sold). Currently only shows revenue minus expenses.
-  *Affected user: Emeka. His top feature request. Would pay for it.*
-  Files: `app/handlers.py` (handle_daily_summary)
+- [x] **No profit/margin view in summary** (FIXED)
+  Summary now shows "Profit (after cost and expenses): X naira" when cost data exists from stock entries.
 
-- [ ] **No morning prompt / opening reminder**
-  Only the evening nudge exists. Users forget to record sales during the day. A morning nudge ("Good morning! Ready to record today's sales") would prime the habit loop.
-  *Affected user: Mama Blessing. Forgot ~50% of sales in month 1.*
-  Files: `app/main.py` (daily_nudge endpoint or new morning endpoint), `app/responses.py`
+- [x] **No morning prompt / opening reminder** (FIXED)
+  New `/cron/morning-nudge?token=X` endpoint sends "Good morning! Ready to record today's sales" to active users.
 
-- [ ] **Improve voice name correction flow**
-  Current hint says "type the correct spelling" which leads users to re-send the entire command (creating duplicates). Should say: "If wrong, say 'the name is Sisi Tolu' — I'll fix it, not add a new one." Or auto-detect that the next message looks like a correction of the previous credit.
-  *Affected user: Iya Kemi.*
-  Files: `app/responses.py` (hint_voice_name_check), `app/handlers.py`
+- [x] **Improve voice name correction flow** (FIXED)
+  Covered by the critical fix above — hint changed + duplicate detection added.
 
 - [ ] **Product name drift across voice sessions**
   User says "coke" one day, "coca cola" the next, "soft drink" another time. Gemini normalizes some but not all. Creates duplicate products in the database. The NLU prompt has normalization rules but they don't cover all cases. Consider post-NLU product name canonicalization or merging.
@@ -97,9 +85,9 @@ From 3-month user simulation (July 2026). Prioritized by severity and user impac
 
 ## Feature Requests (from simulated users)
 
-- [ ] **Profit tracking** — "How much profit did I make today?" (Emeka)
+- [x] **Profit tracking** — "How much profit did I make today?" (Emeka) (DONE)
 - [ ] **Batch recording** — "I sold 20 coke, 15 biscuit, 10 soap today" as end-of-day summary (Iya Kemi)
-- [ ] **Morning reminder** — prompt at shop opening time (Mama Blessing)
+- [x] **Morning reminder** — prompt at shop opening time (Mama Blessing) (DONE)
 - [ ] **Inventory alerts** — "Your cement is running low, only 10 bags left" sent proactively (Emeka)
 - [ ] **Payment summary** — "How much did people pay me this week?" (Emeka)
 - [ ] **Product merge** — "Coke and Coca Cola are the same thing" (Iya Kemi)
