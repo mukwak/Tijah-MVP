@@ -238,6 +238,11 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
         customer=customer, amount=_fmt(amount), note=note_text,
     )
 
+    # Voice name verification: if this is a NEW customer from a voice note,
+    # give the user a chance to correct the name before it gets entrenched.
+    if match_type is None and data.get("_is_voice"):
+        result += get_response("hint_voice_name_check", lang, customer=customer)
+
     # Drip hints — credit-related discovery
     credit_count = (await (await db.execute(
         "SELECT COUNT(*) FROM credits WHERE phone = ?", (phone,)
@@ -281,7 +286,10 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     rows = await cursor.fetchall()
 
     if not rows:
-        return get_response("customer_not_found", lang, customer=customer)
+        not_found = get_response("customer_not_found", lang, customer=customer)
+        if data.get("_is_voice"):
+            not_found += get_response("hint_voice_name_spell", lang)
+        return not_found
 
     # Log the payment in the payments table (audit trail)
     await db.execute(
@@ -1017,11 +1025,19 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
             return "Wetin you wan change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
         return "What do you want to change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
 
-    # Get the last sale
-    cursor = await db.execute(
-        "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
-        (phone,),
-    )
+    # Get the last sale, optionally filtering by product
+    product = data.get("product")
+    if product:
+        product = _normalize_product_name(product)
+        cursor = await db.execute(
+            "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? AND LOWER(product_name) = LOWER(?) ORDER BY created_at DESC LIMIT 1",
+            (phone, product),
+        )
+    else:
+        cursor = await db.execute(
+            "SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
+            (phone,),
+        )
     row = await cursor.fetchone()
     if not row:
         if lang == "pidgin":
@@ -1063,6 +1079,11 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     """Undo the last recorded action (sale, expense, credit, or stock entry)."""
     db = await get_db()
 
+    # Optional product filter: "undo the rice sale"
+    product_filter = data.get("product")
+    if product_filter:
+        product_filter = _normalize_product_name(product_filter)
+
     # Find the most recent action across all tables
     tables = [
         ("sales", "product_name", "total", "quantity", "product_id"),
@@ -1078,11 +1099,19 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     latest_pid_col = None
 
     for table, desc_col, amount_col, qty_col, pid_col in tables:
+        # If product filter given, only search product-related tables
+        if product_filter and table in ("expenses", "credits", "payments"):
+            continue
+        where = "phone = ?"
+        params = [phone]
+        if product_filter and desc_col == "product_name":
+            where += " AND LOWER(product_name) = LOWER(?)"
+            params.append(product_filter)
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amount_col}, created_at"
             + (f", {qty_col}, {pid_col}" if qty_col else "")
-            + f" FROM {table} WHERE phone = ? ORDER BY created_at DESC LIMIT 1",
-            (phone,),
+            + f" FROM {table} WHERE {where} ORDER BY created_at DESC LIMIT 1",
+            tuple(params),
         )
         row = await cursor.fetchone()
         if row:
@@ -1221,6 +1250,21 @@ async def handle_customer_statement(phone: str, data: dict, lang: str) -> str:
 
 # ---- Helpers ----
 
+def _normalize_product_name(name: str) -> str:
+    """Strip common qualifiers that the NLU adds but don't belong in the product name.
+
+    E.g. "bag of rice" → "rice", "crate of minerals" → "minerals",
+         "bags of cement" → "cement".
+    """
+    s = name.lower().strip()
+    # Strip leading unit qualifiers: "bag of rice" → "rice"
+    s = re.sub(
+        r'^(bags?|crates?|cartons?|bottles?|pieces?|packs?|rolls?|kegs?|sachets?|dozens?|pairs?|bundles?|tins?|cups?)\s+of\s+',
+        '', s,
+    )
+    return s.strip()
+
+
 async def _find_product(db, phone, name):
     """Find a product by name - exact match first, then word-boundary fuzzy match.
 
@@ -1229,6 +1273,8 @@ async def _find_product(db, phone, name):
     prevents "rice" from matching "fried rice" while still allowing "cement"
     to match "cement bag".
     """
+    name = _normalize_product_name(name)
+
     # Exact match (case-insensitive)
     cursor = await db.execute(
         "SELECT id, name, sell_price FROM products WHERE phone = ? AND LOWER(name) = LOWER(?)",
@@ -1259,10 +1305,11 @@ async def _find_product(db, phone, name):
         # Search term is a whole word inside stored name
         if pattern.search(stored):
             return r
-        # Stored name is a whole word inside search term
-        stored_pattern = re.compile(r'\b' + re.escape(stored) + r'\b')
-        if len(stored) >= 4 and stored_pattern.search(name.lower()):
-            return r
+        # Stored name is a whole word inside search term (guard against short names like "oil" matching "groundnut oil")
+        if len(stored) >= 4:
+            stored_pattern = re.compile(r'\b' + re.escape(stored) + r'\b')
+            if stored_pattern.search(name.lower()):
+                return r
 
     return None
 

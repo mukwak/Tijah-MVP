@@ -293,6 +293,14 @@ RESPONSES = {
         "pidgin": "\n\nIf you want make I write reminder message, just talk \"remind {customer}\".",
         "english": "\n\nWant me to write a reminder message? Just say \"remind {customer}\".",
     },
+    "hint_voice_name_check": {
+        "pidgin": "\n\nI hear \"{customer}\" - if the name no correct, type the correct spelling.",
+        "english": "\n\nI heard \"{customer}\" - if that's wrong, type the correct spelling.",
+    },
+    "hint_voice_name_spell": {
+        "pidgin": "\n\nVoice fit change name small. Try type the name instead.",
+        "english": "\n\nVoice can change names slightly. Try typing the name instead.",
+    },
 
     # === INSIGHTS (one simple line, only when there is data to compare) ===
     "insight_better": {

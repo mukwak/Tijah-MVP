@@ -37,7 +37,12 @@ async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
                 language="en",  # Works well for Nigerian English & Pidgin
                 prompt="Nigerian Pidgin English. Shop sales, stock, credit, customer names. "
                        "Naira currency. Examples: I sell, I buy, e owe me, how much, "
-                       "wetin I sell today, how my shop do",
+                       "wetin I sell today, how my shop do. "
+                       "Common name prefixes: Mama, Alhaji, Brother, Sister, Chief, "
+                       "Mrs, Aunty, Uncle, Pastor, Iya, Baba. "
+                       "Nigerian names: Nkechi, Chinyere, Adebayo, Oluwaseun, Tolu, "
+                       "Emeka, Ngozi, Funke, Adamu, Amina, Kemi, Blessing, Joy, Grace, "
+                       "Chiamaka, Obiora, Yemi, Nneka, Ifeoma, Chisom",
             )
         return transcript.text.strip()
     finally:
