@@ -134,6 +134,12 @@ ACTIONS you can return:
     Triggers: "coke and coca cola are the same thing", "merge coca cola into coke", "coca cola is the same as coke"
     The old_name is merged INTO the new_name (new_name is kept).
 
+26. RECORD_BULK_SALE - User states a total sales amount WITHOUT listing specific products
+    {"action": "record_bulk_sale", "total": 20000, "when": "today"}
+    Triggers: "I sold 20 thousand today", "today I make 15 thousand", "my sales today na 25 thousand", "I sell like 30 thousand today"
+    Use ONLY when the user gives a total amount but does NOT mention any specific product name.
+    If they mention ANY product (even vaguely), use record_sale or multi_sale instead.
+
 25. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
     {"action": "customer_statement", "customer": "Mama Joy"}
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"

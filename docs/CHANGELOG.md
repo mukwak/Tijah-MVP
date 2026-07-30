@@ -66,6 +66,22 @@
 - "Low stock alert: cement (3 bag left). Time to restock!"
 - Only triggers for products that have stock tracking enabled
 
+### Quick Daily Total ("Bulk Sale")
+- New `record_bulk_sale` handler: "I sold 20 thousand today" records a lump sum
+- Stored under "(general sales)" product — counts toward revenue and summaries
+- Gently nudges user to list specific items next time for better tracking
+- NLU action 26 (RECORD_BULK_SALE) added
+
+### Long Voice Note Warning
+- Detects voice notes >40KB (~30+ seconds) and appends a hint
+- "That was a long voice note. If I missed anything, send a shorter follow-up"
+- Prevents users from losing data without knowing it
+
+### Voice Onboarding for New Users
+- First voice message from a new user gets a spoken intro prepended to the TTS reply
+- "I'm Tijah, your shop helper." is heard aloud, not just read as text
+- Ensures voice-only users who can't read still hear the introduction
+
 ---
 
 ## Alpha 0.3 - July 2026

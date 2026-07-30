@@ -337,6 +337,14 @@ async def _process_message(message: dict):
     if is_voice:
         echo = get_response("voice_echo", lang, text=text)
         response_text = echo + response_text
+        # Warn about long voice notes that may have been truncated
+        if message.get("_long_voice"):
+            response_text += get_response("hint_long_voice", lang)
+
+    # For new voice users, prepend a spoken intro so they hear who Tijah is
+    if is_new_user and is_voice:
+        tip = get_response("welcome_voice_tip", lang)
+        response_text = tip + response_text
 
     # Send response - voice reply only if user sent a voice note
     await _send_response(phone, response_text, lang, include_voice=is_voice)
@@ -355,7 +363,11 @@ async def _extract_text(message: dict, msg_type: str) -> str | None:
             try:
                 audio_bytes = await download_media(media_id)
                 text = await transcribe(audio_bytes)
-                log.info(f"Transcribed: {text}")
+                log.info(f"Transcribed: {text} (audio_size={len(audio_bytes)})")
+                # Flag long voice notes so _process_message can warn user
+                # WhatsApp opus ~1-2KB/sec, 40KB ≈ 30s+
+                if len(audio_bytes) > 40_000:
+                    message["_long_voice"] = True
                 return text
             except Exception as e:
                 log.error(f"Transcription error: {e}")
@@ -403,6 +415,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "check_payments": handlers.handle_check_payments,
         "merge_products": handlers.handle_merge_products,
         "what_can_you_do": handlers.handle_what_can_you_do,
+        "record_bulk_sale": handlers.handle_record_bulk_sale,
     }
 
     handler = handler_map.get(action)

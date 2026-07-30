@@ -259,6 +259,24 @@ async def run():
     low_stock_msg = get_response("nudge_low_stock", "english", items="cement (3 bag left)")
     check("Low stock has items", "cement" in low_stock_msg)
 
+    # --- TEST 21: Bulk sale recording ---
+    print("\n--- TEST 21: Bulk sale recording ---")
+    result = await _route_intent(PHONE, {"action": "record_bulk_sale", "total": 20000}, "english")
+    check("Bulk sale recorded", "20,000" in result)
+    check("Bulk sale hint shown", "list" in result.lower() or "items" in result.lower())
+    # Verify it shows up in summary
+    summary = await _route_intent(PHONE, {"action": "daily_summary", "period": "today"}, "english")
+    check("Bulk sale in summary", "20,000" in summary or "20000" in summary)
+
+    # --- TEST 22: Long voice note + voice onboarding templates ---
+    print("\n--- TEST 22: Long voice note + voice onboarding templates ---")
+    long_hint = get_response("hint_long_voice", "english")
+    check("Long voice hint exists", "long" in long_hint.lower() or "shorter" in long_hint.lower())
+    voice_tip = get_response("welcome_voice_tip", "english")
+    check("Voice onboarding tip exists", "tijah" in voice_tip.lower())
+    voice_tip_pidgin = get_response("welcome_voice_tip", "pidgin")
+    check("Voice tip pidgin exists", "tijah" in voice_tip_pidgin.lower())
+
     # === CLEANUP ===
     await close_db()
     pathlib.Path("test_smoke.db").unlink(missing_ok=True)

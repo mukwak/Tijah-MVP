@@ -341,6 +341,18 @@ RESPONSES = {
         "pidgin": "Good evening! You never record anything today. Wetin you sell?",
         "english": "Good evening! You haven't recorded anything today. What did you sell?",
     },
+    "hint_bulk_detail": {
+        "pidgin": "Next time if you remember wetin you sell, list am — I go track each product for you.",
+        "english": "Next time if you remember what you sold, list the items — I'll track each product for you.",
+    },
+    "hint_long_voice": {
+        "pidgin": "\n\nThat voice note long well well. If I miss anything, send another short one with the rest.",
+        "english": "\n\nThat was a long voice note. If I missed anything, send a shorter follow-up with the rest.",
+    },
+    "welcome_voice_tip": {
+        "pidgin": "I be Tijah, your shop helper. ",
+        "english": "I'm Tijah, your shop helper. ",
+    },
     "nudge_morning": {
         "pidgin": "Good morning! Ready to record today sales. Just yarn to me when you sell something.",
         "english": "Good morning! Ready to record today's sales. Just tell me when you sell something.",

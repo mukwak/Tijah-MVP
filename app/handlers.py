@@ -1600,6 +1600,45 @@ async def _add_credit(db, phone, customer, amount, note=""):
     )
 
 
+async def handle_record_bulk_sale(phone: str, data: dict, lang: str) -> str:
+    """Record a lump-sum daily total without specific products."""
+    db = await get_db()
+    total = float(data.get("total", 0))
+    if total <= 0:
+        if lang == "pidgin":
+            return "How much you sell? Tell me the amount."
+        return "How much did you sell? Tell me the amount."
+
+    when = _resolve_when(data.get("when", "today"))
+    product_name = "(general sales)"
+    product_id = await _get_or_create_product(db, phone, product_name, "lump sum", 0)
+
+    if when:
+        await db.execute(
+            """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, created_at)
+               VALUES (?, ?, ?, 1, ?, ?, ?)""",
+            (phone, product_id, product_name, total, total, when),
+        )
+    else:
+        await db.execute(
+            """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total)
+               VALUES (?, ?, ?, 1, ?, ?)""",
+            (phone, product_id, product_name, total, total),
+        )
+    await db.commit()
+
+    if lang == "pidgin":
+        result = f"I don record {_fmt(total)} naira sales for today."
+    else:
+        result = f"Recorded {_fmt(total)} naira in sales."
+
+    if data.get("when") == "yesterday":
+        result = result.replace("for today", "for yesterday").replace("in sales", "in sales for yesterday")
+
+    result += "\n" + get_response("hint_bulk_detail", lang)
+    return result
+
+
 async def handle_what_can_you_do(phone: str, data: dict, lang: str) -> str:
     """Show a personalized list of features the user hasn't tried yet."""
     db = await get_db()
