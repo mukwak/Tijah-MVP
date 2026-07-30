@@ -21,6 +21,14 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(hi|hello|hey|good (morning|afternoon|evening)|how far|what.s up|sup|howdy)$",
      {"action": "greeting"}),
 
+    # Privacy
+    (r"^(my privacy|privacy|is my data safe|my data|data privacy|about my data)$",
+     {"action": "privacy"}),
+
+    # Delete data
+    (r"^(delete (my|all) data|remove my (data|account)|wipe my data|clear my account)$",
+     {"action": "delete_data"}),
+
     # What can you do (personalized feature list)
     (r"^(what (else )?(can you do|you fit do)|wetin (else )?you fit do|what else|wetin else)$",
      {"action": "what_can_you_do"}),

@@ -41,6 +41,9 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 - [x] **Report page not optimized for small screens** (FIXED)
   Added `box-sizing: border-box`, base font 16px, scrollable `.table-wrap` divs, table font bumped to 0.9rem, tighter padding for mobile readability.
 
+- [x] **No privacy policy or consent flow (NDPR compliance)** (FIXED)
+  Added: consent language in welcome message, privacy intent handler ("my privacy"), `/privacy` bilingual HTML page, "delete my data" handler with confirmation, report/receipt footer privacy links, pre-classifier patterns. NLU actions 27-28 added.
+
 - [x] **No "quick daily total" recording** (FIXED)
   New `record_bulk_sale` handler: "I sold 20 thousand today" records a lump sum under "(general sales)". Gently nudges user to list items next time. NLU action 26 added.
 

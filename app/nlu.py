@@ -134,6 +134,14 @@ ACTIONS you can return:
     Triggers: "coke and coca cola are the same thing", "merge coca cola into coke", "coca cola is the same as coke"
     The old_name is merged INTO the new_name (new_name is kept).
 
+27. PRIVACY - User asks about their data, privacy, or data safety
+    {"action": "privacy"}
+    Triggers: "is my data safe", "what about my privacy", "who can see my data", "my privacy", "about my data"
+
+28. DELETE_DATA - User wants to delete all their records/account
+    {"action": "delete_data"}
+    Triggers: "delete my data", "remove my account", "wipe my data", "clear my account", "delete everything"
+
 26. RECORD_BULK_SALE - User states a total sales amount WITHOUT listing specific products
     {"action": "record_bulk_sale", "total": 20000, "when": "today"}
     Triggers: "I sold 20 thousand today", "today I make 15 thousand", "my sales today na 25 thousand", "I sell like 30 thousand today"

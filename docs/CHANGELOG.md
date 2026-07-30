@@ -77,6 +77,15 @@
 - "That was a long voice note. If I missed anything, send a shorter follow-up"
 - Prevents users from losing data without knowing it
 
+### Privacy & Data Controls (NDPR Compliance)
+- Welcome message now includes consent language: "By sending me messages, you agree..."
+- New `privacy` handler: "my privacy" / "is my data safe?" returns plain-language summary
+- New `/privacy` HTML page with English/Pidgin toggle — explains what's stored, why, who sees it
+- New `delete_data` handler: "delete my data" with yes/no confirmation, then wipes all records
+- Report and receipt page footers now link to `/privacy`
+- Pre-classifier catches "my privacy", "delete my data", "is my data safe", etc.
+- NLU actions 27 (PRIVACY) and 28 (DELETE_DATA) added
+
 ### Voice Onboarding for New Users
 - First voice message from a new user gets a spoken intro prepended to the TTS reply
 - "I'm Tijah, your shop helper." is heard aloud, not just read as text

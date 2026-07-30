@@ -107,6 +107,117 @@ async def health():
     return {"status": "ok", "service": "tijah"}
 
 
+@app.get("/privacy")
+async def privacy_page():
+    """Plain-language privacy policy page."""
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Tijah - Privacy</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, sans-serif; font-size: 16px; line-height: 1.6;
+         max-width: 600px; margin: 0 auto; padding: 20px; color: #333; }
+  h1 { font-size: 1.4rem; margin-bottom: 10px; }
+  h2 { font-size: 1.1rem; margin: 20px 0 8px; color: #1a73e8; }
+  p, li { margin-bottom: 8px; }
+  ul { padding-left: 20px; }
+  .lang-toggle { text-align: center; margin: 15px 0; }
+  .lang-toggle button { padding: 8px 16px; margin: 0 5px; border: 1px solid #ccc;
+    border-radius: 6px; background: #f5f5f5; cursor: pointer; font-size: 0.9rem; }
+  .lang-toggle button.active { background: #1a73e8; color: white; border-color: #1a73e8; }
+  .section { display: none; }
+  .section.active { display: block; }
+  footer { text-align: center; color: #999; font-size: 0.75rem; padding: 30px 0 10px; }
+</style>
+</head>
+<body>
+<h1>Tijah Privacy Policy</h1>
+<div class="lang-toggle">
+  <button class="active" onclick="show('en',this)">English</button>
+  <button onclick="show('pid',this)">Pidgin</button>
+</div>
+
+<div id="en" class="section active">
+<h2>What we save</h2>
+<ul>
+  <li>Your phone number (so we know it's your shop)</li>
+  <li>Sales, stock, and expense records you tell us</li>
+  <li>Customer names and credit/payment amounts</li>
+  <li>What you say in voice notes (we turn it to text, we don't keep the audio)</li>
+</ul>
+
+<h2>Why we save it</h2>
+<p>To help you track your shop — sales, stock, who owes you, expenses, and profit.</p>
+
+<h2>Who can see your data</h2>
+<ul>
+  <li><strong>Only you</strong> — through your phone or your report link</li>
+  <li>Customer receipt links only show that one customer's record</li>
+  <li>We do NOT sell, share, or give your data to anyone</li>
+</ul>
+
+<h2>How we protect it</h2>
+<p>Your data is stored securely. Report and receipt links use private tokens that cannot be guessed.</p>
+
+<h2>How to delete your data</h2>
+<p>Send Tijah the message <strong>"delete my data"</strong> at any time. All your records will be permanently removed. This cannot be undone.</p>
+
+<h2>Your consent</h2>
+<p>By sending messages to Tijah, you agree that we can save your shop records to help you track your business. You can withdraw consent at any time by deleting your data.</p>
+
+<h2>Contact</h2>
+<p>If you have questions, send Tijah the message "I have a complaint" or "feedback".</p>
+</div>
+
+<div id="pid" class="section">
+<h2>Wetin we save</h2>
+<ul>
+  <li>Your phone number (so we go know say na your shop)</li>
+  <li>Sales, stock, and expense record wey you tell us</li>
+  <li>Customer name and how much dem owe or pay</li>
+  <li>Wetin you talk for voice note (we change am to text, we no keep the audio)</li>
+</ul>
+
+<h2>Why we save am</h2>
+<p>To help you track your shop — sales, stock, who owe you, expenses, and profit.</p>
+
+<h2>Who fit see your data</h2>
+<ul>
+  <li><strong>Only you</strong> — through your phone or your report link</li>
+  <li>Customer receipt link only show that one customer own record</li>
+  <li>We no dey sell, share, or give your data to anybody</li>
+</ul>
+
+<h2>How we protect am</h2>
+<p>Your data dey safe for secure server. Report and receipt link get private code wey nobody fit guess.</p>
+
+<h2>How to delete your data</h2>
+<p>Send Tijah <strong>"delete my data"</strong> anytime. All your record go disappear permanently. E no fit reverse.</p>
+
+<h2>Your consent</h2>
+<p>When you send message to Tijah, you agree say we fit save your shop record to help you. You fit remove your consent anytime — just delete your data.</p>
+
+<h2>Contact</h2>
+<p>If you get question, send Tijah "I get complaint" or "feedback".</p>
+</div>
+
+<footer>Tijah &copy; 2026</footer>
+<script>
+function show(id, btn) {
+  document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+  document.querySelectorAll('.lang-toggle button').forEach(b => b.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+  btn.classList.add('active');
+}
+</script>
+</body>
+</html>"""
+    return HTMLResponse(content=html)
+
+
 @app.get("/admin/{token}")
 async def admin_dashboard(token: str):
     """Admin overview, protected by ADMIN_TOKEN env var."""
@@ -416,6 +527,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "merge_products": handlers.handle_merge_products,
         "what_can_you_do": handlers.handle_what_can_you_do,
         "record_bulk_sale": handlers.handle_record_bulk_sale,
+        "privacy": handlers.handle_privacy,
+        "delete_data": handlers.handle_delete_data,
     }
 
     handler = handler_map.get(action)

@@ -15,13 +15,17 @@ RESPONSES = {
         "pidgin": (
             "How far! I be Tijah, your shop helper.\n\n"
             "Voice note or text, just tell me wetin you sell, buy, or who owe you. "
-            "Your record na private. Say \"I get complaint\" if anything no work.\n\n"
+            "By sending me message, you agree say I fit save your shop records to help you. "
+            "Your data na private — I no go share am. "
+            "Say \"my privacy\" to learn more, or \"I get complaint\" if anything no work.\n\n"
             "Wetin you sell today?"
         ),
         "english": (
             "Hi! I'm Tijah, your shop helper.\n\n"
             "Voice note or text - just tell me what you sell, buy, or who owes you. "
-            "Your records are private. Say \"I have a complaint\" if anything goes wrong.\n\n"
+            "By sending me messages, you agree that I can save your shop records to help you. "
+            "Your data is private — I won't share it. "
+            "Say \"my privacy\" to learn more, or \"I have a complaint\" if anything goes wrong.\n\n"
             "What did you sell today?"
         ),
     },
@@ -341,6 +345,46 @@ RESPONSES = {
         "pidgin": "Good evening! You never record anything today. Wetin you sell?",
         "english": "Good evening! You haven't recorded anything today. What did you sell?",
     },
+    # === PRIVACY & DATA ===
+    "privacy_summary": {
+        "pidgin": (
+            "Wetin I save: your phone number, sales, stock, expenses, customer names, and wetin you tell me by voice or text.\n\n"
+            "Why: to help you track your shop.\n\n"
+            "Who fit see am: only you — through your phone or your report link.\n\n"
+            "I no dey sell or share your data with anybody.\n\n"
+            "If you wan delete everything, just talk \"delete my data\".\n\n"
+            "Full details: {url}"
+        ),
+        "english": (
+            "What I save: your phone number, sales, stock, expenses, customer names, and what you tell me by voice or text.\n\n"
+            "Why: to help you track your shop.\n\n"
+            "Who can see it: only you — through your phone or your report link.\n\n"
+            "I don't sell or share your data with anyone.\n\n"
+            "If you want to delete everything, just say \"delete my data\".\n\n"
+            "Full details: {url}"
+        ),
+    },
+    "delete_confirm": {
+        "pidgin": (
+            "You sure say you wan delete ALL your records? Sales, stock, credits, expenses — everything go disappear. "
+            "This one no fit reverse o.\n\n"
+            "Say \"yes\" to delete, or \"no\" to keep your data."
+        ),
+        "english": (
+            "Are you sure you want to delete ALL your records? Sales, stock, credits, expenses — everything will be gone. "
+            "This cannot be undone.\n\n"
+            "Say \"yes\" to delete, or \"no\" to keep your data."
+        ),
+    },
+    "delete_done": {
+        "pidgin": "I don delete all your data. Your account don clear. If you send me message again, we go start fresh.",
+        "english": "All your data has been deleted. Your account is cleared. If you message me again, we'll start fresh.",
+    },
+    "delete_cancelled": {
+        "pidgin": "No wahala, your data still dey safe.",
+        "english": "No problem, your data is safe.",
+    },
+
     "hint_bulk_detail": {
         "pidgin": "Next time if you remember wetin you sell, list am — I go track each product for you.",
         "english": "Next time if you remember what you sold, list the items — I'll track each product for you.",

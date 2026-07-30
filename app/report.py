@@ -277,7 +277,7 @@ async def render_report_html(phone: str) -> str:
   <h2>Expenses</h2>
   <div class="table-wrap"><table><tr><th>Date</th><th>Item</th><th>Category</th><th>Amount</th></tr>{expense_rows}</table></div>
 </section>
-<footer>Powered by Tijah &middot; This link is private to this shop</footer>
+<footer>Powered by Tijah &middot; This link is private to this shop &middot; <a href="/privacy" style="color:#999">Privacy</a></footer>
 </body>
 </html>"""
 
@@ -378,6 +378,6 @@ async def render_customer_receipt_html(phone: str, customer: str) -> str:
   <h2>Payments made</h2>
   <div class="table-wrap"><table><tr><th>Date</th><th>Amount</th></tr>{payment_rows}</table></div>
 </section>
-<footer>Powered by Tijah &middot; {_e(shop_name)}</footer>
+<footer>Powered by Tijah &middot; {_e(shop_name)} &middot; <a href="/privacy" style="color:#999">Privacy</a></footer>
 </body>
 </html>"""

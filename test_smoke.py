@@ -46,7 +46,7 @@ async def run():
     response = await _route_intent(PHONE, intent, "english")
     # Simulate onboarding: greeting -> welcome replaces response
     welcome = get_response("welcome", "english")
-    check("Welcome under 250 chars", len(welcome) < 250, f"got {len(welcome)}")
+    check("Welcome under 350 chars", len(welcome) < 350, f"got {len(welcome)}")
     check("Welcome mentions Tijah", "Tijah" in welcome)
     check("Single message (no duplicate)", welcome.count("Tijah") == 1)
 
@@ -276,6 +276,25 @@ async def run():
     check("Voice onboarding tip exists", "tijah" in voice_tip.lower())
     voice_tip_pidgin = get_response("welcome_voice_tip", "pidgin")
     check("Voice tip pidgin exists", "tijah" in voice_tip_pidgin.lower())
+
+    # --- TEST 23: Privacy and data deletion ---
+    print("\n--- TEST 23: Privacy and data deletion ---")
+    pre_priv = preclassify("my privacy")
+    check("Pre-classifies 'my privacy'", pre_priv and pre_priv["action"] == "privacy")
+    pre_del = preclassify("delete my data")
+    check("Pre-classifies 'delete my data'", pre_del and pre_del["action"] == "delete_data")
+    priv_result = await _route_intent(PHONE, {"action": "privacy"}, "english")
+    check("Privacy summary mentions data", "save" in priv_result.lower() or "data" in priv_result.lower())
+    check("Privacy summary has privacy link", "/privacy" in priv_result)
+    # Test delete flow: initiate then confirm
+    del_result = await _route_intent(PHONE, {"action": "delete_data"}, "english")
+    check("Delete asks for confirmation", "sure" in del_result.lower() or "yes" in del_result.lower())
+    # Confirm yes — should delete
+    confirm_result = await _route_intent(PHONE, {"action": "confirm_yes"}, "english")
+    check("Delete confirmed", "deleted" in confirm_result.lower() or "cleared" in confirm_result.lower())
+    # Welcome message includes consent
+    welcome = get_response("welcome", "english")
+    check("Welcome has consent language", "agree" in welcome.lower())
 
     # === CLEANUP ===
     await close_db()

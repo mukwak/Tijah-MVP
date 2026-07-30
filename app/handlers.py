@@ -1030,12 +1030,17 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."
 
-    # Use the confirmed (matched) customer name
     pending_data = pending["data"]
+    pending_lang = pending.get("lang", lang)
+
+    # Non-customer actions (no name to resolve)
+    if pending["action"] == "delete_data_confirmed":
+        return await handle_delete_data_confirmed(phone, pending_data, pending_lang)
+
+    # Use the confirmed (matched) customer name
     pending_data["customer"] = pending_data.pop("_confirmed_customer")
     pending_data.pop("_original_customer", None)
     pending_data["_skip_customer_match"] = True
-    pending_lang = pending.get("lang", lang)
 
     if pending["action"] == "record_credit":
         return await handle_record_credit(phone, pending_data, pending_lang)
@@ -1054,12 +1059,17 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."
 
-    # Use the original (new) customer name
     pending_data = pending["data"]
+    pending_lang = pending.get("lang", lang)
+
+    # Non-customer actions
+    if pending["action"] == "delete_data_confirmed":
+        return get_response("delete_cancelled", pending_lang)
+
+    # Use the original (new) customer name
     pending_data["customer"] = pending_data.pop("_original_customer")
     pending_data.pop("_confirmed_customer", None)
     pending_data["_skip_customer_match"] = True
-    pending_lang = pending.get("lang", lang)
 
     if pending["action"] == "record_credit":
         return await handle_record_credit(phone, pending_data, pending_lang)
@@ -1598,6 +1608,32 @@ async def _add_credit(db, phone, customer, amount, note=""):
            VALUES (?, ?, ?, ?)""",
         (phone, customer, amount, note),
     )
+
+
+async def handle_privacy(phone: str, data: dict, lang: str) -> str:
+    """Show a plain-language privacy summary."""
+    from app.config import BASE_URL
+    url = f"{BASE_URL.rstrip('/')}/privacy"
+    return get_response("privacy_summary", lang, url=url)
+
+
+async def handle_delete_data(phone: str, data: dict, lang: str) -> str:
+    """Initiate data deletion — asks for confirmation first."""
+    db = await get_db()
+    await _save_pending(db, phone, {"action": "delete_data_confirmed", "data": {}, "lang": lang})
+    return get_response("delete_confirm", lang)
+
+
+async def handle_delete_data_confirmed(phone: str, data: dict, lang: str) -> str:
+    """Actually delete all user data after confirmation."""
+    db = await get_db()
+    # Delete from all tables in dependency order
+    for table in ("sales", "stock_entries", "credits", "payments", "expenses",
+                  "feedback", "pending_actions", "report_tokens", "customer_receipts", "products"):
+        await db.execute(f"DELETE FROM {table} WHERE phone = ?", (phone,))
+    await db.execute("DELETE FROM shops WHERE phone = ?", (phone,))
+    await db.commit()
+    return get_response("delete_done", lang)
 
 
 async def handle_record_bulk_sale(phone: str, data: dict, lang: str) -> str:
