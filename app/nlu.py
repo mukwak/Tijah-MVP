@@ -105,10 +105,11 @@ ACTIONS you can return:
 19. MULTI_SALE - User mentions selling MULTIPLE different products in one message
     {"action": "multi_sale", "items": [
       {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
-      {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000}
+      {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 3000, "total": 6000, "customer": "Mama Joy", "is_credit": true}
     ], "when": "today"}
     IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
     Prices can be omitted if the user doesn't mention them — the system will look up stored prices. Example: "I sold 20 coke, 15 biscuit, 10 soap" → items with quantity only, unit_price: 0, total: 0.
+    Each item can optionally have "customer" and "is_credit": true if that specific item was sold on credit. Example: "I sold 3 bag cement to Alhaji Musa on credit and 2 bag rice cash" → first item has customer + is_credit, second doesn't.
     This supports end-of-day batch recording for high-volume shops.
 
 20. GET_REPORT - User wants a link to see/review all their shop records
@@ -147,6 +148,11 @@ ACTIONS you can return:
     Triggers: "I sold 20 thousand today", "today I make 15 thousand", "my sales today na 25 thousand", "I sell like 30 thousand today"
     Use ONLY when the user gives a total amount but does NOT mention any specific product name.
     If they mention ANY product (even vaguely), use record_sale or multi_sale instead.
+
+30. PAYMENT_AND_CREDIT - User reports a customer payment AND a new credit/purchase in the SAME message
+    {"action": "payment_and_credit", "customer": "Alhaji Musa", "payment_amount": 50000, "credit_amount": 22000, "credit_note": "shock absorber"}
+    Triggers: "Alhaji Musa pay me 50k but buy new shock absorber 22k on credit", "Mama Joy pay 10 thousand and take 5 thousand more rice on credit"
+    Use this ONLY when the message contains BOTH a payment AND a new credit for the SAME customer.
 
 29. MULTI_EXPENSE - User mentions MULTIPLE different expenses in one message
     {"action": "multi_expense", "items": [

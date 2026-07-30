@@ -427,6 +427,10 @@ RESPONSES = {
         "pidgin": "\n\nIf you sell something yesterday, just talk am so: \"I sell rice yesterday\".",
         "english": "\n\nIf you sold something yesterday, just say so: \"I sold rice yesterday\".",
     },
+    "hint_discover_check_sales": {
+        "pidgin": "\n\nYou fit ask \"wetin I sell today?\" to see everything wey you don record.",
+        "english": "\n\nYou can ask \"what did I sell today?\" to see everything you've recorded.",
+    },
 }
 
 

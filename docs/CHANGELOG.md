@@ -2,6 +2,21 @@
 
 ## Alpha 0.4 - July 2026
 
+### Payment + Credit Combo
+- New `handle_payment_and_credit` handler: "Alhaji Musa pay me 50k but buy shock absorber 22k on credit"
+- NLU action 30 (PAYMENT_AND_CREDIT) processes both in one message
+- Resolves customer name once, applies to both payment and credit
+
+### Multi-Sale with Per-Item Credit
+- `multi_sale` items now support optional `customer` and `is_credit` fields
+- "I sold 3 bag cement to Chief Obi on credit and 2 iron rod cash" records credit only for the first item
+- Credit notes are now preserved in multi-sale summaries (not stripped to first line)
+
+### "Check Sales" Discoverability
+- Pre-classifier now catches "what did I sell today", "wetin I sell today", "did I record"
+- New discovery hint at sale count 15: "You can ask 'what did I sell today?' to see everything you've recorded"
+- Surfaces the existing `check_sales` feature that users weren't finding
+
 ### Voice Nudges for Voice-Only Users
 - Tracks `voice_user` flag in shops table (set when user sends a voice note)
 - Evening and morning nudges now send TTS audio alongside text for voice users

@@ -114,6 +114,53 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ---
 
+## From Simulation Round 4
+
+### Medium Severity
+
+- [x] **Payment + new credit in one message not supported** (FIXED)
+  New `handle_payment_and_credit` handler + NLU action 30. "Alhaji Musa pay me 50k but buy shock absorber 22k on credit" now works in one message.
+
+- [x] **No "did I already record today?" check** (FIXED)
+  Pre-classifier now catches "what did I sell today" / "did I record". Discovery hint added at sale count 15 to surface the existing `check_sales` feature.
+
+- [x] **Multi-sale with per-item credit still not supported** (FIXED)
+  `multi_sale` items now support optional `customer` and `is_credit` fields. Credit notes preserved in multi-sale summaries.
+
+### Low Severity
+
+- [ ] **Whisper alias map doesn't cover industry-specific terms**
+  Spare parts names ("alternator", "shock absorber", "ball joint") aren't in the alias map. Whisper variants like "auto nator" or "shoka bsorber" create duplicate products.
+  *Affected user: Oga Segun.*
+  Files: `app/handlers.py` (_PRODUCT_ALIASES)
+
+- [ ] **No product split (reverse of merge)**
+  Can merge "coca cola" into "coke" but can't split "rice" into "jollof rice" and "fried rice" by reclassifying old entries.
+  *Affected user: Sister Funke.*
+  Files: `app/handlers.py`
+
+- [ ] **Profit label confusing for food vendors**
+  Food vendors record ingredient purchases as expenses, not stock. Profit shows correctly (revenue - expenses) but label "Profit (after cost and expenses)" implies they're separate. Should adapt wording when cost data is absent.
+  *Affected user: Sister Funke.*
+  Files: `app/handlers.py` (handle_daily_summary), `app/responses.py`
+
+- [ ] **Report page is HTML-only — no voice summary**
+  Voice-only users get a report link but can't easily read the HTML page. A voice summary ("Your top 5 products this month are...") would be more accessible.
+  *Affected user: Oga Segun.*
+  Files: `app/handlers.py`, `app/main.py`
+
+- [ ] **Shop name feature has zero discovery**
+  None of the simulated users set their shop name. The hint exists but isn't triggered frequently enough. The shop name only shows on the report page header.
+  *Affected users: All.*
+  Files: `app/handlers.py` (_get_discovery_hint)
+
+- [ ] **"Check sales" (itemized list) not discoverable**
+  Users ask "how my shop do" for summaries but don't know they can ask "what did I sell today?" for an itemized list. The `check_sales` action exists but is never hinted.
+  *Affected user: Sister Funke.*
+  Files: `app/responses.py` (hints), `app/handlers.py`
+
+---
+
 ## Feature Requests (from simulated users)
 
 - [x] **Profit tracking** — "How much profit did I make today?" (Chidi) (DONE)
@@ -129,8 +176,31 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 - [ ] **Supplier tracking** — "I bought from supplier X" for purchase attribution (Chidi)
 - [ ] **Profit per product** — "Which product makes me the most money?" (Chidi)
 - [x] **Voice-guided onboarding** — audio walkthrough for first-time voice users (Iya Sade) (DONE)
+- [ ] **Voice report summary** — spoken overview of report data for voice-only users (Oga Segun)
+- [ ] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke)
 
 ---
+
+## Stats from Simulation Round 4
+
+| Metric | Mama Blessing | Oga Segun | Sister Funke |
+|--------|:---:|:---:|:---:|
+| Features discovered | 17/22+ | 16/22+ | 17/22+ |
+| Would recommend | Yes (already did) | Yes | Yes |
+| Would pay | 1-2k/mo | 3-5k/mo | 500-1k/mo |
+| Usage frequency | Daily | Daily | Daily |
+| Retention risk | Very low | Low-medium | Low |
+| Top frustration | None significant | Can't combine payment+credit | Profit label confusing |
+
+### Comparison vs Simulation Round 2
+
+| Metric | Round 2 | Round 4 | Change |
+|--------|:---:|:---:|:---:|
+| Avg features discovered | 16.3/20+ | 16.7/22+ | Stable (more features available) |
+| Lowest user discovery | 13/20+ | 16/22+ | Improved |
+| Voice user engagement | Low (text nudges ignored) | High (TTS nudges work) | Major improvement |
+| Recommend rate | 3/3 | 3/3 | Maintained |
+| Retention risk (worst) | Low-medium | Low-medium | Stable |
 
 ## Stats from Simulation Round 2
 

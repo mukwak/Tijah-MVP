@@ -172,6 +172,8 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
                 result += hint
         elif sale_count == 12:
             result += get_response("hint_discover_backdate", lang)
+        elif sale_count == 15:
+            result += get_response("hint_discover_check_sales", lang)
 
     return result
 
@@ -386,6 +388,40 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
         "payment_recorded", lang,
         customer=customer, amount=_fmt(amount), remaining_note=remaining_note,
     )
+
+
+async def handle_payment_and_credit(phone: str, data: dict, lang: str) -> str:
+    """Handle a combined payment + new credit for the same customer."""
+    customer = data.get("customer", "Customer")
+    payment_amount = float(data.get("payment_amount", 0))
+    credit_amount = float(data.get("credit_amount", 0))
+    credit_note = data.get("credit_note", "")
+
+    # Process the payment first
+    payment_data = {"customer": customer, "amount": payment_amount, "_skip_customer_match": True}
+    # Find similar customer once for both operations
+    db = await get_db()
+    matched, match_type = await _find_similar_customer(db, phone, customer)
+    if match_type == "fuzzy":
+        data["_confirmed_customer"] = matched
+        data["_original_customer"] = customer
+        await _save_pending(db, phone, {"action": "payment_and_credit", "data": data, "lang": lang})
+        return get_response("confirm_customer", lang, original=customer, matched=matched)
+    if match_type == "exact":
+        customer = matched
+
+    payment_data = {"customer": customer, "amount": payment_amount, "_skip_customer_match": True}
+    payment_result = await handle_record_payment(phone, payment_data, lang)
+
+    # Process the new credit
+    credit_data = {
+        "customer": customer, "amount": credit_amount, "note": credit_note,
+        "_skip_customer_match": True, "_skip_voice_dedup": True,
+    }
+    credit_result = await handle_record_credit(phone, credit_data, lang)
+
+    # Combine the two results
+    return payment_result + "\n\n" + credit_result
 
 
 async def handle_check_stock(phone: str, data: dict, lang: str) -> str:
@@ -1360,19 +1396,29 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
     needs_price = []
 
     for item in items:
-        # Process each item as a sale
+        # Process each item as a sale, preserving per-item credit/customer
         item["action"] = "record_sale"
         if "when" not in item and "when" in data:
             item["when"] = data["when"]
+        # Inherit top-level customer/credit if item doesn't specify its own
+        if "customer" not in item and "customer" in data and data["customer"]:
+            item["customer"] = data["customer"]
+        if "is_credit" not in item and data.get("is_credit"):
+            item["is_credit"] = True
         result = await handle_record_sale(phone, item, lang)
-        first_line = result.split("\n")[0]
+        # Keep the sale line + credit note (first 2 lines), drop stock/hint noise
+        lines = result.split("\n")
+        sale_line = lines[0]
 
         # Check if the handler asked for a price (no stored price found)
-        if "How much" in result or "How much" in first_line:
+        if "How much" in result or "How much" in sale_line:
             needs_price.append(item.get("product", "item"))
             continue
 
-        results.append(first_line)
+        # Include credit note if present (second line)
+        if len(lines) > 1 and ("credit" in lines[1].lower() or "owe" in lines[1].lower()):
+            sale_line += "\n" + lines[1]
+        results.append(sale_line)
         # Recalculate — don't trust LLM total
         qty = float(item.get("quantity", 1))
         price = float(item.get("unit_price", 0))

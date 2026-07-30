@@ -33,6 +33,10 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(what (else )?(can you do|you fit do)|wetin (else )?you fit do|what else|wetin else)$",
      {"action": "what_can_you_do"}),
 
+    # Check today's sales (did I already record?)
+    (r"^(what did i (sell|record) today|wetin i sell today|did i record|have i recorded|what i sell today)$",
+     {"action": "check_sales", "period": "today"}),
+
     # Help
     (r"^(help|how (does|do) (this|it) work|menu|commands?)$",
      {"action": "help"}),

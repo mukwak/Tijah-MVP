@@ -335,6 +335,60 @@ async def run():
     check("Nudge says 'items'", "items" in nudge.lower())
     check("Nudge does not say 'sales'", "10 sales" not in nudge.lower())
 
+    # --- TEST 28: Payment + new credit in one message ---
+    print("\n--- TEST 28: Payment + credit combo ---")
+    # Set up: create a credit for the customer first
+    intent = {"action": "record_credit", "customer": "Alhaji Musa", "amount": 50000,
+              "note": "brake pad", "_skip_voice_dedup": True}
+    await _route_intent(PHONE, intent, "english")
+    # Now do the combo: payment + new credit
+    combo = await _route_intent(PHONE, {
+        "action": "payment_and_credit",
+        "customer": "Alhaji Musa",
+        "payment_amount": 30000,
+        "credit_amount": 22000,
+        "credit_note": "shock absorber",
+    }, "english")
+    check("Combo has payment", "30,000" in combo)
+    check("Combo has new credit", "22,000" in combo)
+    check("Combo has customer", "Alhaji Musa" in combo)
+
+    # --- TEST 29: "Did I record today?" pre-classifier ---
+    print("\n--- TEST 29: Check sales preclassifier ---")
+    pre = preclassify("what did i sell today")
+    check("Pre-classifies 'what did i sell today'",
+          pre and pre["action"] == "check_sales")
+    pre2 = preclassify("wetin i sell today")
+    check("Pre-classifies pidgin variant",
+          pre2 and pre2["action"] == "check_sales")
+    pre3 = preclassify("did i record")
+    check("Pre-classifies 'did i record'",
+          pre3 and pre3["action"] == "check_sales")
+
+    # --- TEST 30: Multi-sale with per-item credit ---
+    print("\n--- TEST 30: Multi-sale with credit ---")
+    multi_credit = await _route_intent(PHONE, {
+        "action": "multi_sale",
+        "items": [
+            {"product": "cement", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000,
+             "customer": "Chief Obi", "is_credit": True},
+            {"product": "iron rod", "quantity": 2, "unit": "piece", "unit_price": 3000, "total": 6000},
+        ]
+    }, "english")
+    check("Multi-sale credit recorded", "Chief Obi" in multi_credit and "credit" in multi_credit.lower())
+    check("Multi-sale cash item recorded", "iron rod" in multi_credit)
+    # Verify the credit was actually created
+    cursor = await db.execute(
+        "SELECT SUM(amount - paid) FROM credits WHERE phone = ? AND LOWER(customer) = 'chief obi' AND settled = 0",
+        (PHONE,))
+    credit_owed = (await cursor.fetchone())[0]
+    check("Credit entry exists for Chief Obi", credit_owed is not None and credit_owed >= 15000)
+
+    # --- TEST 31: Check sales hint exists ---
+    print("\n--- TEST 31: Check sales discovery hint ---")
+    hint = get_response("hint_discover_check_sales", "english")
+    check("Check sales hint exists", "what did i sell" in hint.lower())
+
     # === CLEANUP ===
     await close_db()
     pathlib.Path("test_smoke.db").unlink(missing_ok=True)

@@ -519,6 +519,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "add_stock": handlers.handle_add_stock,
         "record_credit": handlers.handle_record_credit,
         "record_payment": handlers.handle_record_payment,
+        "payment_and_credit": handlers.handle_payment_and_credit,
         "check_stock": handlers.handle_check_stock,
         "check_credits": handlers.handle_check_credits,
         "daily_summary": handlers.handle_daily_summary,
