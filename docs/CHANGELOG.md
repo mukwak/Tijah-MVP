@@ -2,6 +2,16 @@
 
 ## Alpha 0.4 - July 2026
 
+### Price Ambiguity Clarification
+- When NLU detects ambiguous pricing (e.g. "3 bags for 25 thousand" — each or total?), Tijah now asks before recording
+- Interactive buttons: "Total" vs "Each" — user picks, sale is recorded with the correct interpretation
+- Uses the pending action system: no silent assumptions
+
+### Credit/Cash Clarification
+- When a customer name is mentioned in a sale but it's unclear if it's cash or credit, Tijah now asks
+- NLU sets `credit_ambiguous: true` for ambiguous cases like "Mama Joy buy 3 bag rice 5 thousand"
+- Interactive buttons: "Cash" vs "Credit" — user picks, sale is recorded accordingly
+
 ### Payment + Credit Combo
 - New `handle_payment_and_credit` handler: "Alhaji Musa pay me 50k but buy shock absorber 22k on credit"
 - NLU action 30 (PAYMENT_AND_CREDIT) processes both in one message

@@ -389,6 +389,43 @@ async def run():
     hint = get_response("hint_discover_check_sales", "english")
     check("Check sales hint exists", "what did i sell" in hint.lower())
 
+    # --- TEST 32: Price ambiguity asks for clarification ---
+    print("\n--- TEST 32: Price ambiguity clarification ---")
+    price_resp = await _route_intent(PHONE, {
+        "action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag",
+        "unit_price": 25000, "total": 75000, "price_ambiguous": True,
+    }, "english")
+    check("Price ambiguity asks question", "total" in price_resp.lower() and "each" in price_resp.lower())
+    check("Price ambiguity has yes/no", 'say "yes"' in price_resp.lower() or 'say "no"' in price_resp.lower())
+    # Confirm "yes" = total interpretation
+    confirm_resp = await _route_intent(PHONE, {"action": "confirm_yes"}, "english")
+    check("Price confirm records sale", "Sold!" in confirm_resp)
+    check("Price confirm uses total", "75,000" in confirm_resp)
+
+    # --- TEST 33: Price ambiguity — "no" means each ---
+    print("\n--- TEST 33: Price ambiguity 'each' path ---")
+    await _route_intent(PHONE, {
+        "action": "record_sale", "product": "beans", "quantity": 2, "unit": "bag",
+        "unit_price": 10000, "total": 20000, "price_ambiguous": True,
+    }, "english")
+    # Say "no" = each interpretation (10k each = 20k total)
+    each_resp = await _route_intent(PHONE, {"action": "confirm_no"}, "english")
+    check("Each path records sale", "Sold!" in each_resp)
+    check("Each path calculates correctly", "20,000" in each_resp)
+
+    # --- TEST 34: Credit ambiguity asks for clarification ---
+    print("\n--- TEST 34: Credit ambiguity clarification ---")
+    credit_resp = await _route_intent(PHONE, {
+        "action": "record_sale", "product": "cement", "quantity": 1, "unit": "bag",
+        "unit_price": 5000, "total": 5000, "customer": "Mama Tinu",
+        "is_credit": False, "credit_ambiguous": True,
+    }, "english")
+    check("Credit ambiguity asks question", "cash" in credit_resp.lower() and "credit" in credit_resp.lower())
+    # Say "no" = credit
+    credit_confirm = await _route_intent(PHONE, {"action": "confirm_no"}, "english")
+    check("Credit path records sale", "Sold!" in credit_confirm or "credit" in credit_confirm.lower())
+    check("Credit path marks as credit", "credit" in credit_confirm.lower())
+
     # === CLEANUP ===
     await close_db()
     pathlib.Path("test_smoke.db").unlink(missing_ok=True)

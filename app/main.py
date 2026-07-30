@@ -453,8 +453,19 @@ async def _process_message(message: dict):
     if any(phrase in response_text for phrase in [
         'Say "yes"', 'Say "no"', "same person", "na the same person"
     ]):
-        yes_label = "Yes, same person" if lang == "english" else "Yes, na dem"
-        no_label = "No, new person" if lang == "english" else "No, another person"
+        # Determine button labels based on context
+        if "total" in response_text and "each" in response_text and ("cash" not in response_text.lower()):
+            # Price clarification
+            yes_label = "Total" if lang == "english" else "Na total"
+            no_label = "Each" if lang == "english" else "Na each"
+        elif "cash" in response_text.lower() and "credit" in response_text.lower():
+            # Credit clarification
+            yes_label = "Cash" if lang == "english" else "Na cash"
+            no_label = "Credit" if lang == "english" else "Na credit"
+        else:
+            # Customer name confirmation
+            yes_label = "Yes, same person" if lang == "english" else "Yes, na dem"
+            no_label = "No, new person" if lang == "english" else "No, another person"
         await send_interactive_buttons(phone, response_text, [
             {"id": "confirm_yes", "title": yes_label[:20]},
             {"id": "confirm_no", "title": no_label[:20]},

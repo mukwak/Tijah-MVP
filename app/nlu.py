@@ -198,7 +198,11 @@ RULES:
   - "X total" / "X altogether" / "all for X" = total (divide by quantity for unit_price)
   - "I sold 3 bags of rice, 25 thousand" with no "each"/"total" = treat as TOTAL (25k total, not each)
   - "I sold 3 bags of rice at 25 thousand" / "for 25 thousand each" = unit_price
-  - When truly ambiguous (no "each"/"total"/"at" keyword), set "price_ambiguous": true so the app can confirm
+  - When truly ambiguous (no "each"/"total"/"at" keyword), set "price_ambiguous": true so the app can ask the user
+- CREDIT AMBIGUITY: When a customer name is mentioned in a sale but the user did NOT clearly say "on credit", "owe", "credit", "e owe me" or similar:
+  - If clearly cash (e.g. "I sold to X", "X came and paid for Y"): set "is_credit": false
+  - If clearly credit (e.g. "X bought on credit", "X owe me", "X collect without paying"): set "is_credit": true
+  - If ambiguous (e.g. "Mama Joy buy 3 bag rice 5 thousand" — could be cash or credit): set "is_credit": false AND "credit_ambiguous": true so the app can ask the user
 - "when" field: "today" (default), "yesterday", a day name like "saturday" or "last friday", or an offset like "-2" for 2 days ago
 - ALWAYS include "detected_language" in your response: "pidgin" ONLY if the user clearly spoke Nigerian Pidgin, otherwise "english". When unsure, use "english".
 

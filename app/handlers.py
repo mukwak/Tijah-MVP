@@ -73,6 +73,51 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         else:
             return get_response("sale_needs_price", lang, product=product)
 
+    # Price ambiguity: "3 bags for 25 thousand" — each or total?
+    if data.get("price_ambiguous") and quantity > 1:
+        each_total = unit_price * quantity
+        total_each = total / quantity if total else unit_price
+        data["_price_each"] = unit_price  # NLU's interpretation (treated as total)
+        data["_price_total"] = total
+        await _save_pending(db, phone, {
+            "action": "price_clarification",
+            "data": data,
+            "lang": lang,
+        })
+        if lang == "pidgin":
+            return (
+                f"You talk {_fmt(quantity)} {unit} {product} for {_fmt(total)} naira.\n\n"
+                f"Na {_fmt(total)} total, abi {_fmt(total)} each?\n\n"
+                f"Say \"yes\" if na {_fmt(total)} total ({_fmt(total_each)} each).\n"
+                f"Say \"no\" if na {_fmt(total)} each ({_fmt(each_total)} total)."
+            )
+        return (
+            f"You said {_fmt(quantity)} {unit} {product} for {_fmt(total)} naira.\n\n"
+            f"Is that {_fmt(total)} total, or {_fmt(total)} each?\n\n"
+            f"Say \"yes\" if {_fmt(total)} total ({_fmt(total_each)} each).\n"
+            f"Say \"no\" if {_fmt(total)} each ({_fmt(each_total)} total)."
+        )
+
+    # Credit ambiguity: customer mentioned but credit not explicit
+    if customer and not is_credit and data.get("credit_ambiguous"):
+        data["_skip_customer_match"] = True
+        await _save_pending(db, phone, {
+            "action": "credit_clarification",
+            "data": data,
+            "lang": lang,
+        })
+        if lang == "pidgin":
+            return (
+                f"{customer} buy {_fmt(quantity)} {unit} {product} = {_fmt(total)} naira.\n\n"
+                f"Na cash abi credit?\n\n"
+                f"Say \"yes\" if na cash. Say \"no\" if na credit."
+            )
+        return (
+            f"{customer} bought {_fmt(quantity)} {unit} {product} = {_fmt(total)} naira.\n\n"
+            f"Was that cash or credit?\n\n"
+            f"Say \"yes\" if cash. Say \"no\" if credit."
+        )
+
     # Find or create product
     product_id = await _get_or_create_product(db, phone, product, unit, unit_price)
 
@@ -1122,6 +1167,18 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     if pending["action"] == "delete_data_confirmed":
         return await handle_delete_data_confirmed(phone, pending_data, pending_lang)
 
+    # Price clarification: "yes" = total interpretation (as-is)
+    if pending["action"] == "price_clarification":
+        pending_data.pop("price_ambiguous", None)
+        # "yes" = the amount is total, keep as-is
+        return await handle_record_sale(phone, pending_data, pending_lang)
+
+    # Credit clarification: "yes" = cash (not credit)
+    if pending["action"] == "credit_clarification":
+        pending_data.pop("credit_ambiguous", None)
+        pending_data["is_credit"] = False
+        return await handle_record_sale(phone, pending_data, pending_lang)
+
     # Use the confirmed (matched) customer name
     pending_data["customer"] = pending_data.pop("_confirmed_customer")
     pending_data.pop("_original_customer", None)
@@ -1131,6 +1188,10 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
         return await handle_record_credit(phone, pending_data, pending_lang)
     elif pending["action"] == "record_payment":
         return await handle_record_payment(phone, pending_data, pending_lang)
+    elif pending["action"] == "customer_statement":
+        return await handle_customer_statement(phone, pending_data, pending_lang)
+    elif pending["action"] == "payment_and_credit":
+        return await handle_payment_and_credit(phone, pending_data, pending_lang)
 
     return get_response("error", lang)
 
@@ -1151,6 +1212,25 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     if pending["action"] == "delete_data_confirmed":
         return get_response("delete_cancelled", pending_lang)
 
+    # Price clarification: "no" = each interpretation — recalculate
+    if pending["action"] == "price_clarification":
+        pending_data.pop("price_ambiguous", None)
+        # "no" = the amount is per-unit, recalculate total
+        qty = float(pending_data.get("quantity", 1))
+        price = float(pending_data.get("_price_total", 0)) or float(pending_data.get("unit_price", 0))
+        pending_data["unit_price"] = price
+        pending_data["total"] = price * qty
+        pending_data.pop("_price_each", None)
+        pending_data.pop("_price_total", None)
+        return await handle_record_sale(phone, pending_data, pending_lang)
+
+    # Credit clarification: "no" = credit (not cash)
+    if pending["action"] == "credit_clarification":
+        pending_data.pop("credit_ambiguous", None)
+        pending_data["is_credit"] = True
+        customer = pending_data.get("customer", "Customer")
+        return await handle_record_sale(phone, pending_data, pending_lang)
+
     # Use the original (new) customer name
     pending_data["customer"] = pending_data.pop("_original_customer")
     pending_data.pop("_confirmed_customer", None)
@@ -1160,6 +1240,10 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
         return await handle_record_credit(phone, pending_data, pending_lang)
     elif pending["action"] == "record_payment":
         return await handle_record_payment(phone, pending_data, pending_lang)
+    elif pending["action"] == "customer_statement":
+        return await handle_customer_statement(phone, pending_data, pending_lang)
+    elif pending["action"] == "payment_and_credit":
+        return await handle_payment_and_credit(phone, pending_data, pending_lang)
 
     return get_response("error", lang)
 
