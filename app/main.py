@@ -256,7 +256,7 @@ async def daily_nudge(request: Request):
 
     # Find shops active in the last 7 days
     cursor = await db.execute(
-        """SELECT DISTINCT s.phone, s.language FROM shops s
+        """SELECT DISTINCT s.phone, s.language, s.voice_user FROM shops s
            WHERE EXISTS (
                SELECT 1 FROM sales WHERE sales.phone = s.phone
                AND sales.created_at >= datetime('now', '+1 hours', '-7 days')
@@ -266,14 +266,14 @@ async def daily_nudge(request: Request):
 
     sent = 0
     for shop in active_shops:
-        phone, lang = shop[0], shop[1] or "english"
+        phone, lang, is_voice_user = shop[0], shop[1] or "english", shop[2] or 0
 
         cursor = await db.execute(
-            "SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND date(created_at) = date('now', '+1 hours')",
+            "SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND date(created_at) = date('now', '+1 hours')",
             (phone,),
         )
         row = await cursor.fetchone()
-        sales_count, sales_total = row[0], row[1]
+        sales_count, sales_total = int(row[0]), row[1]
 
         if sales_count > 0:
             msg = get_response("nudge_evening_active", lang,
@@ -313,6 +313,12 @@ async def daily_nudge(request: Request):
 
         try:
             await send_text(phone, msg)
+            if is_voice_user:
+                try:
+                    audio_path = await text_to_speech(msg, lang)
+                    await send_audio(phone, audio_path)
+                except Exception as e:
+                    log.error(f"Nudge TTS failed for {phone}: {e}")
             sent += 1
         except Exception as e:
             log.error(f"Nudge failed for {phone}: {e}")
@@ -331,7 +337,7 @@ async def morning_nudge(request: Request):
 
     # Find shops active in the last 7 days
     cursor = await db.execute(
-        """SELECT DISTINCT s.phone, s.language FROM shops s
+        """SELECT DISTINCT s.phone, s.language, s.voice_user FROM shops s
            WHERE EXISTS (
                SELECT 1 FROM sales WHERE sales.phone = s.phone
                AND sales.created_at >= datetime('now', '+1 hours', '-7 days')
@@ -341,10 +347,16 @@ async def morning_nudge(request: Request):
 
     sent = 0
     for shop in active_shops:
-        phone, lang = shop[0], shop[1] or "english"
+        phone, lang, is_voice_user = shop[0], shop[1] or "english", shop[2] or 0
         msg = get_response("nudge_morning", lang)
         try:
             await send_text(phone, msg)
+            if is_voice_user:
+                try:
+                    audio_path = await text_to_speech(msg, lang)
+                    await send_audio(phone, audio_path)
+                except Exception as e:
+                    log.error(f"Morning nudge TTS failed for {phone}: {e}")
             sent += 1
         except Exception as e:
             log.error(f"Morning nudge failed for {phone}: {e}")
@@ -382,6 +394,11 @@ async def _process_message(message: dict):
         lang = shop[0] or "english"
 
     is_voice = msg_type == "audio"
+
+    # Mark user as voice-preferring so nudges can include TTS
+    if is_voice and not is_new_user:
+        await db.execute("UPDATE shops SET voice_user = 1 WHERE phone = ? AND voice_user = 0", (phone,))
+        await db.commit()
 
     # Handle button replies directly (no NLU needed)
     if msg_type == "interactive":
@@ -506,6 +523,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "check_credits": handlers.handle_check_credits,
         "daily_summary": handlers.handle_daily_summary,
         "record_expense": handlers.handle_record_expense,
+        "multi_expense": handlers.handle_multi_expense,
         "check_expenses": handlers.handle_check_expenses,
         "set_price": handlers.handle_set_price,
         "change_language": handlers.handle_change_language,

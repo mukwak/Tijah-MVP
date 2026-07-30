@@ -2,6 +2,26 @@
 
 ## Alpha 0.4 - July 2026
 
+### Voice Nudges for Voice-Only Users
+- Tracks `voice_user` flag in shops table (set when user sends a voice note)
+- Evening and morning nudges now send TTS audio alongside text for voice users
+- Ensures voice-only users who can't read still receive nudge content
+
+### Summary Unit Count Fix
+- Daily summary and evening nudge now count total items sold (`SUM(quantity)`) instead of sale records (`COUNT(*)`)
+- "3 bags of rice" now counts as 3 items, not 1
+- Template wording changed from "things" to "items"
+
+### Day-Name Backdating
+- `_resolve_when` now supports day names: "saturday", "last friday", etc.
+- NLU prompt updated to extract day names into the `when` field
+- "I sold rice on Saturday" now correctly backdates to last Saturday
+
+### Multi-Expense Recording
+- New `handle_multi_expense` handler: "I spent 3k on flour and 1.5k on oil" records both
+- NLU action 29 (MULTI_EXPENSE) added with items array format
+- Shows itemized list with total after recording
+
 ### Voice Name Duplicate Prevention (Critical Fix)
 - Voice name check hint now guides users to say "change X to Y" instead of re-sending the command
 - Auto-detects when a credit with the same amount but different customer name follows a voice name check — renames instead of creating a duplicate

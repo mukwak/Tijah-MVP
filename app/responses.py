@@ -134,17 +134,17 @@ RESPONSES = {
 
     # === DAILY SUMMARY ===
     "daily_summary_simple": {
-        "pidgin": "{period} you sell {sales_count} things = {sales_total} naira.",
-        "english": "{period} you sold {sales_count} things = {sales_total} naira.",
+        "pidgin": "{period} you sell {sales_count} items = {sales_total} naira.",
+        "english": "{period} you sold {sales_count} items = {sales_total} naira.",
     },
     "daily_summary_with_expenses": {
         "pidgin": (
-            "{period} you sell {sales_count} things = {sales_total} naira.\n"
+            "{period} you sell {sales_count} items = {sales_total} naira.\n"
             "You spend {expense_total} naira.\n"
             "Cash wey remain: {net_cash} naira."
         ),
         "english": (
-            "{period} you sold {sales_count} things = {sales_total} naira.\n"
+            "{period} you sold {sales_count} items = {sales_total} naira.\n"
             "You spent {expense_total} naira.\n"
             "Cash in hand: {net_cash} naira."
         ),
@@ -333,11 +333,11 @@ RESPONSES = {
     # === DAILY NUDGE ===
     "nudge_evening_active": {
         "pidgin": (
-            "Good evening! Today you record {sales_count} sales = {sales_total} naira. "
+            "Good evening! Today you sell {sales_count} items = {sales_total} naira. "
             "Well done! Anything wey you sell wey you never tell me?"
         ),
         "english": (
-            "Good evening! Today you recorded {sales_count} sales = {sales_total} naira. "
+            "Good evening! Today you sold {sales_count} items = {sales_total} naira. "
             "Well done! Did you sell anything else you haven't told me?"
         ),
     },

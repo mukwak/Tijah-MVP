@@ -13,14 +13,30 @@ def _fmt(num: float) -> str:
     return f"{num:,.1f}"
 
 
+_DAY_NAMES = {
+    "monday": 0, "tuesday": 1, "wednesday": 2, "thursday": 3,
+    "friday": 4, "saturday": 5, "sunday": 6,
+}
+
+
 def _resolve_when(when: str) -> str | None:
-    """Convert 'yesterday', '-2' etc. to a WAT datetime string. None = now (use DB default)."""
+    """Convert 'yesterday', '-2', or day names to a WAT datetime string. None = now."""
     if not when or when == "today":
         return None
     # UTC+1 for Nigeria (WAT)
     now_wat = datetime.utcnow() + timedelta(hours=1)
     if when == "yesterday":
         dt = now_wat - timedelta(days=1)
+        return dt.strftime("%Y-%m-%d %H:%M:%S")
+    # Day name: "saturday", "last friday"
+    day_key = when.lower().replace("last ", "").strip()
+    if day_key in _DAY_NAMES:
+        target_dow = _DAY_NAMES[day_key]
+        current_dow = now_wat.weekday()
+        days_back = (current_dow - target_dow) % 7
+        if days_back == 0:
+            days_back = 7  # "saturday" on a saturday means last saturday
+        dt = now_wat - timedelta(days=days_back)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     try:
         days = int(when)
@@ -525,6 +541,39 @@ async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
     return result
 
 
+async def handle_multi_expense(phone: str, data: dict, lang: str) -> str:
+    """Record multiple expenses from a single message."""
+    db = await get_db()
+    items = data.get("items", [])
+    if not items:
+        return get_response("error", lang)
+
+    results = []
+    total = 0
+    for item in items:
+        description = item.get("description", "expense")
+        amount = float(item.get("amount", 0))
+        category = item.get("category", "other")
+        if amount <= 0:
+            continue
+        await db.execute(
+            "INSERT INTO expenses (phone, description, amount, category) VALUES (?, ?, ?, ?)",
+            (phone, description, amount, category),
+        )
+        results.append(f"  {description}: {_fmt(amount)} naira")
+        total += amount
+
+    await db.commit()
+
+    if not results:
+        return get_response("error", lang)
+
+    expense_list = "\n".join(results)
+    if lang == "pidgin":
+        return f"Saved! You spend:\n{expense_list}\n\nTotal: {_fmt(total)} naira"
+    return f"Saved! You spent:\n{expense_list}\n\nTotal: {_fmt(total)} naira"
+
+
 async def handle_check_expenses(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     period = data.get("period", "today")
@@ -627,11 +676,11 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
 
     # Sales
     cursor = await db.execute(
-        f"SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {date_filter}",
+        f"SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {date_filter}",
         (phone,),
     )
     row = await cursor.fetchone()
-    sales_count, sales_total = row[0], row[1]
+    sales_count, sales_total = int(row[0]), row[1]
 
     # Expenses
     cursor = await db.execute(

@@ -148,6 +148,14 @@ ACTIONS you can return:
     Use ONLY when the user gives a total amount but does NOT mention any specific product name.
     If they mention ANY product (even vaguely), use record_sale or multi_sale instead.
 
+29. MULTI_EXPENSE - User mentions MULTIPLE different expenses in one message
+    {"action": "multi_expense", "items": [
+      {"description": "flour", "amount": 3000, "category": "supplies"},
+      {"description": "oil", "amount": 1500, "category": "supplies"}
+    ], "when": "today"}
+    IMPORTANT: Only use multi_expense when there are 2+ DIFFERENT expenses. If it's just one expense, use record_expense.
+    Triggers: "I spent 3k on flour and 1.5k on oil", "I pay 500 for transport and 2000 for electricity"
+
 25. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
     {"action": "customer_statement", "customer": "Mama Joy"}
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"
@@ -185,7 +193,7 @@ RULES:
   - "I sold 3 bags of rice, 25 thousand" with no "each"/"total" = treat as TOTAL (25k total, not each)
   - "I sold 3 bags of rice at 25 thousand" / "for 25 thousand each" = unit_price
   - When truly ambiguous (no "each"/"total"/"at" keyword), set "price_ambiguous": true so the app can confirm
-- "when" field: "today" (default), "yesterday", or an offset like "-2" for 2 days ago
+- "when" field: "today" (default), "yesterday", a day name like "saturday" or "last friday", or an offset like "-2" for 2 days ago
 - ALWAYS include "detected_language" in your response: "pidgin" ONLY if the user clearly spoke Nigerian Pidgin, otherwise "english". When unsure, use "english".
 
 Return ONLY valid JSON. No explanation."""

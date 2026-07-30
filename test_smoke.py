@@ -133,6 +133,7 @@ async def run():
     intent = {"action": "daily_summary", "period": "today"}
     resp = await _route_intent(PHONE, intent, "english")
     check("Summary has sales", "sold" in resp.lower() or "15,000" in resp)
+    check("Summary uses 'items' not 'things'", "items" in resp.lower())
     check("Summary has expenses", "500" in resp or "spent" in resp.lower())
 
     # === TEST 12: Undo ===
@@ -295,6 +296,44 @@ async def run():
     # Welcome message includes consent
     welcome = get_response("welcome", "english")
     check("Welcome has consent language", "agree" in welcome.lower())
+
+    # Re-create shop after data deletion in test 23
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (PHONE,))
+    await db.commit()
+
+    # --- TEST 24: Multi-expense recording ---
+    print("\n--- TEST 24: Multi-expense recording ---")
+    multi_exp = await _route_intent(PHONE, {
+        "action": "multi_expense",
+        "items": [
+            {"description": "flour", "amount": 3000, "category": "supplies"},
+            {"description": "oil", "amount": 1500, "category": "supplies"},
+        ]
+    }, "english")
+    check("Multi-expense recorded", "flour" in multi_exp.lower() and "oil" in multi_exp.lower())
+    check("Multi-expense total", "4,500" in multi_exp)
+
+    # --- TEST 25: Day-name backdating ---
+    print("\n--- TEST 25: Day-name backdating ---")
+    from app.handlers import _resolve_when
+    sat = _resolve_when("saturday")
+    check("Day name resolves", sat is not None)
+    fri = _resolve_when("last friday")
+    check("'last friday' resolves", fri is not None)
+    check("Today returns None", _resolve_when("today") is None)
+
+    # --- TEST 26: Voice user flag in schema ---
+    print("\n--- TEST 26: Voice user flag ---")
+    cursor = await db.execute("SELECT voice_user FROM shops WHERE phone = ?", (PHONE,))
+    row = await cursor.fetchone()
+    check("voice_user column exists", row is not None)
+
+    # --- TEST 27: Nudge template uses 'items' not 'sales' ---
+    print("\n--- TEST 27: Nudge wording ---")
+    nudge = get_response("nudge_evening_active", "english",
+                         sales_count=10, sales_total="50,000")
+    check("Nudge says 'items'", "items" in nudge.lower())
+    check("Nudge does not say 'sales'", "10 sales" not in nudge.lower())
 
     # === CLEANUP ===
     await close_db()

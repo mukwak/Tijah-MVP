@@ -81,10 +81,8 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
   *Low impact for alpha, matters at scale.*
   Files: `app/main.py` (daily_nudge)
 
-- [ ] **Evening nudge "X sales" count is misleading for multi-sale users**
-  Counts sale records, not individual items. A user who sends 2 multi-sale voice notes recording 60 plates sees "2 sales" in the nudge. The total revenue is correct but the count is confusing.
-  *Affected user: Iya Sade.*
-  Files: `app/main.py` (daily_nudge)
+- [x] **Evening nudge "X sales" count is misleading for multi-sale users** (FIXED)
+  Now uses `SUM(quantity)` instead of `COUNT(*)`. Template wording changed from "things"/"sales" to "items".
 
 - [ ] **No product categories/grouping**
   As product list grows past 10+ items, stock check and report become unwieldy. No way to group products (e.g. "drinks", "food", "building materials").
@@ -106,10 +104,8 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
   *Affected user: Iya Sade.*
   Files: `app/handlers.py` (_PRODUCT_ALIASES, _normalize_product_name)
 
-- [ ] **No audio-only feature tips**
-  Voice-only users ignore text hints appended after the voice echo. Feature discovery tips should be spoken in the TTS reply, not just appended as text.
-  *Affected user: Iya Sade.*
-  Files: `app/main.py` (_send_response), `app/voice.py`
+- [x] **No audio-only feature tips** (PARTIALLY FIXED)
+  Nudges now send TTS audio for voice users. In-message hints are already spoken via the voice echo TTS reply. Remaining: standalone discovery tips could be more prominent in audio.
 
 - [ ] **NLU may misparse corrections as new sales**
   "The price was 500 not 300" can be ambiguous — NLU might interpret as a new sale or a price-setting action instead of an edit. Needs stronger correction-detection patterns.
