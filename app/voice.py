@@ -165,14 +165,39 @@ def _make_speakable(text: str) -> str:
     return s.strip()
 
 
-async def text_to_speech(text: str, language: str = "english") -> str:
-    """Convert text to speech using edge-tts (free, Nigerian English voice). Returns path to mp3 file."""
+def _split_into_chunks(text: str, max_chars: int = 450) -> list[str]:
+    """Split text at sentence boundaries into chunks of up to max_chars.
+
+    Tries to split on '. ' first, then '. ' within the chunk, then hard-cuts.
+    """
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks = []
+    remaining = text
+    while remaining:
+        if len(remaining) <= max_chars:
+            chunks.append(remaining)
+            break
+        # Find the last sentence boundary within the limit
+        cut = remaining[:max_chars].rfind('. ')
+        if cut < 100:
+            # No good sentence boundary — try comma or newline
+            cut = remaining[:max_chars].rfind(', ')
+        if cut < 100:
+            cut = max_chars  # Hard cut as last resort
+        else:
+            cut += 2  # Include the '. ' or ', '
+        chunks.append(remaining[:cut].strip())
+        remaining = remaining[cut:].strip()
+
+    return chunks
+
+
+async def _tts_one_chunk(speech_text: str) -> str:
+    """Generate TTS for a single text chunk. Returns path to mp3."""
     os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
-    # Convert to conversational speech
-    speech_text = _make_speakable(text)
-
-    # Cache by text hash to avoid regenerating
     text_hash = hashlib.md5(speech_text.encode()).hexdigest()[:12]
     output_path = os.path.join(AUDIO_CACHE_DIR, f"{text_hash}.mp3")
 
@@ -183,11 +208,8 @@ async def text_to_speech(text: str, language: str = "english") -> str:
             return output_path
         os.remove(output_path)
 
-    # Truncate very long text
-    tts_text = speech_text[:500] if len(speech_text) > 500 else speech_text
-    log.info(f"TTS generating (edge-tts): text_len={len(tts_text)}, voice={EDGE_TTS_VOICE}")
-
-    communicate = edge_tts.Communicate(tts_text, EDGE_TTS_VOICE, rate="-5%")
+    log.info(f"TTS generating (edge-tts): text_len={len(speech_text)}, voice={EDGE_TTS_VOICE}")
+    communicate = edge_tts.Communicate(speech_text, EDGE_TTS_VOICE, rate="-5%")
     await communicate.save(output_path)
 
     file_size = os.path.getsize(output_path)
@@ -197,3 +219,30 @@ async def text_to_speech(text: str, language: str = "english") -> str:
         raise RuntimeError("edge-tts produced empty audio file")
 
     return output_path
+
+
+async def text_to_speech(text: str, language: str = "english") -> str | list[str]:
+    """Convert text to speech using edge-tts. Returns path(s) to mp3 file(s).
+
+    For short text: returns a single path (str).
+    For long text: splits at sentence boundaries and returns a list of paths.
+    The last chunk of very long text gets a "check your text message" note.
+    """
+    speech_text = _make_speakable(text)
+    chunks = _split_into_chunks(speech_text, max_chars=450)
+
+    # Cap at 3 voice notes max — anything beyond that, append a redirect
+    MAX_VOICE_CHUNKS = 3
+    if len(chunks) > MAX_VOICE_CHUNKS:
+        chunks = chunks[:MAX_VOICE_CHUNKS]
+        check_msg = "Check your text message for the full details." if language == "english" else "Check your text message for the full gist."
+        chunks[-1] = chunks[-1].rstrip('.') + '. ' + check_msg
+
+    if len(chunks) == 1:
+        return await _tts_one_chunk(chunks[0])
+
+    paths = []
+    for chunk in chunks:
+        path = await _tts_one_chunk(chunk)
+        paths.append(path)
+    return paths

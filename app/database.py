@@ -65,6 +65,11 @@ class SQLiteDatabase:
             await self.commit()
         except Exception:
             pass  # Column already exists
+        try:
+            await self.execute("ALTER TABLE shops ADD COLUMN long_voice_hinted INTEGER DEFAULT 0")
+            await self.commit()
+        except Exception:
+            pass  # Column already exists
 
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
@@ -142,6 +147,10 @@ class PostgresDatabase:
         # Migrations for existing databases
         try:
             await self._execute("ALTER TABLE shops ADD COLUMN voice_user INTEGER DEFAULT 0", ())
+        except Exception:
+            pass  # Column already exists
+        try:
+            await self._execute("ALTER TABLE shops ADD COLUMN long_voice_hinted INTEGER DEFAULT 0", ())
         except Exception:
             pass  # Column already exists
 
@@ -239,7 +248,8 @@ CREATE TABLE IF NOT EXISTS shops (
     language    TEXT DEFAULT 'english',
     created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
     onboarded   INTEGER DEFAULT 0,
-    voice_user  INTEGER DEFAULT 0
+    voice_user  INTEGER DEFAULT 0,
+    long_voice_hinted INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -367,7 +377,8 @@ CREATE TABLE IF NOT EXISTS shops (
     language    TEXT DEFAULT 'english',
     created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS'),
     onboarded   INTEGER DEFAULT 0,
-    voice_user  INTEGER DEFAULT 0
+    voice_user  INTEGER DEFAULT 0,
+    long_voice_hinted INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS products (

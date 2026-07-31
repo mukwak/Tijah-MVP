@@ -883,6 +883,81 @@ async def run():
     check("Mark credit confirmed with matched customer",
           "credit" in resp.lower() and "soap" in resp.lower())
 
+    # ================================================================
+    # T69-T76: Long Voice Note & TTS Splitting Tests
+    # ================================================================
+    from app.voice import _split_into_chunks, _make_speakable
+    from app.handlers import _save_pending
+
+    # T69: TTS chunk splitting - short text stays as one chunk
+    print("\n--- T69: TTS split -- short text is 1 chunk ---")
+    short = "You sold 3 bags of rice for 15 thousand naira."
+    chunks = _split_into_chunks(short)
+    check("Short text = 1 chunk", len(chunks) == 1 and chunks[0] == short)
+
+    # T70: TTS chunk splitting - long text splits at sentence boundaries
+    print("\n--- T70: TTS split -- long text splits at sentence boundary ---")
+    sentences = [f"Sentence number {i} is here for testing." for i in range(20)]
+    long_text = " ".join(sentences)
+    chunks = _split_into_chunks(long_text, max_chars=200)
+    check("Multiple chunks created", len(chunks) > 1)
+    check("Each chunk <= 200 chars", all(len(c) <= 200 for c in chunks))
+    rejoined = " ".join(chunks)
+    # All original content should be preserved (modulo whitespace)
+    check("Content preserved", rejoined.replace("  ", " ").strip() == long_text.strip())
+
+    # T71: TTS chunk splitting - no chunk under 100 chars triggers hard cut
+    print("\n--- T71: TTS split -- hard cut when no sentence boundary ---")
+    no_period = "a" * 500
+    chunks = _split_into_chunks(no_period, max_chars=200)
+    check("Hard cut works", len(chunks) >= 2)
+
+    # T72: _make_speakable strips voice echo
+    print("\n--- T72: _make_speakable strips echo ---")
+    with_echo = 'I heard: "sell 3 bag rice" Sold! 3 bag rice = 15,000 naira'
+    speakable = _make_speakable(with_echo)
+    check("Echo stripped", 'I heard' not in speakable and 'recorded a sale' in speakable)
+
+    # T73: _make_speakable converts URLs
+    print("\n--- T73: _make_speakable converts URLs ---")
+    with_url = "Here is your report: https://example.com/report/abc123"
+    speakable = _make_speakable(with_url)
+    check("URL replaced", "https://" not in speakable and "press the link" in speakable)
+
+    # T74: Very long voice confirm -- yes path (replay)
+    print("\n--- T74: Very long voice confirm -- yes ---")
+    U_VOICE = "2349000000099"
+    db = await get_db()
+    await db.execute(
+        "INSERT OR IGNORE INTO shops (phone, onboarded) VALUES (?, 1)",
+        (U_VOICE,))
+    await db.commit()
+    await _save_pending(db, U_VOICE, {
+        "action": "long_voice_confirm",
+        "text": "I sold 2 bag rice 10000",
+        "lang": "english",
+    })
+    resp = await _route_intent(U_VOICE, {"action": "confirm_yes"}, "english")
+    check("Confirm yes returns replay prefix", resp.startswith("__replay__:"))
+    check("Replay contains original text", "I sold 2 bag rice 10000" in resp)
+
+    # T75: Very long voice confirm -- no path
+    print("\n--- T75: Very long voice confirm -- no ---")
+    await _save_pending(db, U_VOICE, {
+        "action": "long_voice_confirm",
+        "text": "some long transcription",
+        "lang": "english",
+    })
+    resp = await _route_intent(U_VOICE, {"action": "confirm_no"}, "english")
+    check("Confirm no suggests shorter voice note", "shorter voice note" in resp.lower())
+
+    # T76: Long voice hint template exists
+    print("\n--- T76: Long voice hint response template ---")
+    hint_en = get_response("hint_long_voice", "english")
+    hint_pi = get_response("hint_long_voice", "pidgin")
+    check("English hint exists", "shorter" in hint_en.lower())
+    check("Pidgin hint exists", "shorter" in hint_pi.lower())
+
     # === CLEANUP ===
     await close_db()
     for _old in pathlib.Path(".").glob("test_smoke*.db*"):

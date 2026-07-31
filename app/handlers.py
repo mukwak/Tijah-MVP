@@ -1216,7 +1216,16 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     """User confirmed the fuzzy customer match."""
     db = await get_db()
     pending = await _get_pending(db, phone)
-    if not pending or "data" not in pending:
+    if not pending:
+        if lang == "pidgin":
+            return "Nothing to confirm. Just tell me wetin you wan do."
+        return "Nothing to confirm. Just tell me what you need."
+
+    # Long voice confirmation: user says the transcription is correct — process it
+    if pending.get("action") == "long_voice_confirm":
+        return "__replay__:" + pending["text"]
+
+    if "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."
@@ -1269,7 +1278,18 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     """User rejected the fuzzy match — use original name as new customer."""
     db = await get_db()
     pending = await _get_pending(db, phone)
-    if not pending or "data" not in pending:
+    if not pending:
+        if lang == "pidgin":
+            return "Nothing to confirm. Just tell me wetin you wan do."
+        return "Nothing to confirm. Just tell me what you need."
+
+    # Long voice confirmation: user says transcription was wrong — ask to resend
+    if pending.get("action") == "long_voice_confirm":
+        if lang == "pidgin":
+            return "No wahala. Send another shorter voice note and I go try again."
+        return "No problem. Send a shorter voice note and I'll try again."
+
+    if "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
         return "Nothing to confirm. Just tell me what you need."

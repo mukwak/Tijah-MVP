@@ -420,6 +420,20 @@ async def _process_message(message: dict):
 
     log.info(f"User text: {text}")
 
+    # Very long voice note (>45s): echo transcription and ask user to confirm
+    # before processing — Whisper may have lost content at the tail end
+    if message.get("_very_long_voice"):
+        from app.handlers import _save_pending
+        await _save_pending(db, phone, {
+            "action": "long_voice_confirm",
+            "text": text,
+            "lang": lang,
+        })
+        echo = get_response("voice_echo", lang, text=text)
+        confirm_msg = get_response("long_voice_confirm", lang)
+        await send_text(phone, echo + confirm_msg)
+        return
+
     # Fast pre-classifier — skip Gemini for simple intents
     intent = preclassify(text)
     if intent:
@@ -449,6 +463,19 @@ async def _process_message(message: dict):
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
+
+    # Long voice replay: confirm_yes returned saved text to re-process through NLU
+    if response_text.startswith("__replay__:"):
+        replay_text = response_text[len("__replay__:"):]
+        log.info(f"Replaying confirmed long voice text: {replay_text[:80]}...")
+        replay_intent = preclassify(replay_text)
+        if not replay_intent:
+            replay_intent = await parse_intent(replay_text, lang)
+            if replay_intent.get("error") and replay_intent.get("action") == "help":
+                replay_intent = {"action": "_clarify"}
+        lang = replay_intent.pop("detected_language", lang)
+        replay_intent["_is_voice"] = True
+        response_text = await _route_intent(phone, replay_intent, lang)
 
     # Onboarding: fold welcome into the first response (one message, not two)
     if is_new_user:
@@ -487,9 +514,16 @@ async def _process_message(message: dict):
     if is_voice:
         echo = get_response("voice_echo", lang, text=text)
         response_text = echo + response_text
-        # Warn about long voice notes that may have been truncated
+        # Long voice note: one-time hint to send shorter messages (Option 3)
         if message.get("_long_voice"):
-            response_text += get_response("hint_long_voice", lang)
+            cursor = await db.execute(
+                "SELECT long_voice_hinted FROM shops WHERE phone = ?", (phone,))
+            hint_row = await cursor.fetchone()
+            if hint_row and not hint_row[0]:
+                response_text += get_response("hint_long_voice", lang)
+                await db.execute(
+                    "UPDATE shops SET long_voice_hinted = 1 WHERE phone = ?", (phone,))
+                await db.commit()
 
     # For new voice users, prepend a spoken intro so they hear who Tijah is
     if is_new_user and is_voice:
@@ -515,9 +549,12 @@ async def _extract_text(message: dict, msg_type: str) -> str | None:
                 text = await transcribe(audio_bytes)
                 log.info(f"Transcribed: {text} (audio_size={len(audio_bytes)})")
                 # Flag long voice notes so _process_message can warn user
-                # WhatsApp opus ~1-2KB/sec, 40KB ≈ 30s+
+                # WhatsApp opus ~1-2KB/sec, 40KB ~ 30s+, 60KB ~ 45s+
                 if len(audio_bytes) > 40_000:
                     message["_long_voice"] = True
+                # Very long voice note (>45s): flag for echo-and-confirm
+                if len(audio_bytes) > 60_000:
+                    message["_very_long_voice"] = True
                 return text
             except Exception as e:
                 log.error(f"Transcription error: {e}")
@@ -602,9 +639,15 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
     if include_voice:
         try:
             log.info(f"Generating TTS for voice reply to {phone}")
-            audio_path = await text_to_speech(text, lang)
-            log.info(f"TTS generated: {audio_path}, sending audio...")
-            await send_audio(phone, audio_path)
+            result = await text_to_speech(text, lang)
+            if isinstance(result, list):
+                # Multiple audio chunks for long responses
+                log.info(f"TTS generated {len(result)} chunks, sending sequentially...")
+                for audio_path in result:
+                    await send_audio(phone, audio_path)
+            else:
+                log.info(f"TTS generated: {result}, sending audio...")
+                await send_audio(phone, result)
             log.info("Voice reply sent successfully")
         except Exception as e:
             log.error(f"TTS/audio send failed: {e}", exc_info=True)

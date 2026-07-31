@@ -394,8 +394,12 @@ RESPONSES = {
         "english": "Next time if you remember what you sold, list the items — I'll track each product for you.",
     },
     "hint_long_voice": {
-        "pidgin": "\n\nThat voice note long well well. If I miss anything, send another short one with the rest.",
-        "english": "\n\nThat was a long voice note. If I missed anything, send a shorter follow-up with the rest.",
+        "pidgin": "\n\nNext time, try send shorter voice note so I no go miss anything.",
+        "english": "\n\nNext time, try sending shorter voice notes so I don't miss anything.",
+    },
+    "long_voice_confirm": {
+        "pidgin": "That voice note long. I hear everything correct? Say \"yes\" make I record am, or \"no\" make you send am again.",
+        "english": "That was a long voice note. Did I get everything right? Say \"yes\" to record it, or \"no\" to try again.",
     },
     "welcome_voice_tip": {
         "pidgin": "I be Tijah, your shop helper. ",
