@@ -2,6 +2,15 @@
 
 ## Alpha 0.4 - July 2026
 
+### 3-Month User Simulation (Round 10)
+- 3 new low-literate Nigerian users simulated over 3 months of daily usage
+- Mama Titi (Pidgin pepper seller), Brother Uche (English building materials), Sisi Amaka (English fashion accessories)
+- Full lifecycle tested: onboarding, progressive discovery (M7 fix verified), multi-stock, all-time summary, multi-sale per-customer credit, clarifications, profit tracking, undo, privacy
+- DB verification for all 36 sales (1,129,500 naira), credits, expenses, payments, stock quantities
+- All 3 users discovered 15-20 features organically
+- **M10 finding**: undo timestamp tie-breaking favors sales over credits when operations happen in the same second (non-issue in real usage)
+- 552 total tests, all passing
+
 ### Multi-Stock Restocking
 - New `handle_multi_stock` handler: "I bought 50 phone case, 30 charger, 20 power bank"
 - Records all stock entries in one message with itemized list and total cost

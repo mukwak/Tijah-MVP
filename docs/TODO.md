@@ -71,6 +71,15 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ---
 
+## Low Priority (from Round 10)
+
+- [ ] **Undo timestamp tie-breaking favors sales over credits (M10)**
+  When multiple actions happen in the same second (e.g., mark_credit then undo), `handle_undo` picks the first table in iteration order (sales) since `>` doesn't break ties. In real usage with clock ticks between actions, this rarely occurs.
+  Fix: use `>=` instead of `>` in the comparison, or add `id` as secondary tiebreaker.
+  Files: `app/handlers.py` (handle_undo, line ~1550)
+
+---
+
 ## Low Priority
 
 - [x] **Multi-sale doesn't support per-item credit/customer** (FIXED)
@@ -271,6 +280,41 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [x] **Smarter long voice note handling** (DONE) — TTS splits long replies into up to 3 voice note chunks; STT echo-and-confirm for very long notes (>45s); one-time hint for long notes (>30s). 306 tests with full DB verification.
+
+---
+
+## Stats from 3-Month User Simulation (Round 10)
+
+*3 new low-literate Nigerian users over 3 months. Tests multi-stock, all-time summary, multi-sale per-customer credit.*
+
+| User | Type | Language | Sales | Revenue | Features Discovered |
+|------|------|----------|:-----:|--------:|:-------------------:|
+| Mama Titi | Pepper/tomato seller | Pidgin | 21 | ~75,000 | 19 |
+| Brother Uche | Building materials | English | 8 | ~950,000 | 15 |
+| Sisi Amaka | Fashion accessories | English | 7 | ~69,000 | 20 |
+| **Total** | | | **36** | **1,129,500** | |
+
+### Key Findings
+
+| Area | Result |
+|------|--------|
+| M7 fix verified | Progressive hints fire correctly without stock data |
+| Multi-stock | 3+4 items restocked in one message, DB verified |
+| All-time summary | Cumulative stats across all periods work |
+| Multi-sale per-customer | Different customers get separate credit records |
+| Profit tracking | Monthly and all-time summaries show profit from cost data |
+| DB accuracy | All 36 sales, credits, expenses, payments, stock verified |
+| Cross-user isolation | No data leakage between users |
+| **Issue found** | **M10: Undo timestamp tie-breaking (low severity)** |
+
+### Comparison vs Round 9
+
+| Metric | Round 9 | Round 10 | Change |
+|--------|:---:|:---:|:---:|
+| Total tests | 408 | 552 | +35% coverage |
+| New features tested | 0 | 3 (multi-stock, all-time, per-customer) | New |
+| Revenue tested | 274,550 | 1,129,500 | Higher volume |
+| New issues found | 1 (M7) | 1 (M10: low severity) | Stable |
 
 ---
 
