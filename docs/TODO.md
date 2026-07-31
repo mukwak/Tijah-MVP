@@ -48,7 +48,7 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
   New `record_bulk_sale` handler: "I sold 20 thousand today" records a lump sum under "(general sales)". Gently nudges user to list items next time. NLU action 26 added.
 
 - [x] **Long voice notes (>30s) sometimes truncated by Whisper** (FIXED)
-  Detects long audio (>40KB) and appends hint: "That was a long voice note. If I missed anything, send a shorter follow-up."
+  Three-layer approach: (1) TTS splits long replies into up to 3 voice note chunks at sentence boundaries with "check your text message" overflow redirect. (2) Very long voice notes (>45s) trigger echo-and-confirm -- transcription is echoed back and user confirms before processing. (3) One-time hint for long notes (>30s): "try sending shorter voice notes" fires once per user.
 
 - [x] **No guided onboarding for voice-only users** (FIXED)
   First voice message from a new user gets a spoken intro prepended to the TTS reply: "I'm Tijah, your shop helper." so they hear it even if they can't read.

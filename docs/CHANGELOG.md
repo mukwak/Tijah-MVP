@@ -159,10 +159,15 @@
 - Gently nudges user to list specific items next time for better tracking
 - NLU action 26 (RECORD_BULK_SALE) added
 
-### Long Voice Note Warning
-- Detects voice notes >40KB (~30+ seconds) and appends a hint
-- "That was a long voice note. If I missed anything, send a shorter follow-up"
-- Prevents users from losing data without knowing it
+### Long Voice Note Handling (Improved)
+- **TTS splitting**: Long replies split at sentence boundaries into up to 3 voice note chunks (~450 chars each)
+- Overflow beyond 3 chunks gets "Check your text message for the full details" redirect
+- `text_to_speech()` now returns `str | list[str]`; `_send_response` sends multiple audio messages
+- **STT echo-and-confirm**: Very long voice notes (>45s / 60KB) trigger confirmation flow
+- Transcription saved as pending, echoed back to user, processed only after "yes" confirmation
+- `__replay__:` protocol re-routes confirmed text through NLU pipeline
+- **One-time hint**: Long notes (>30s) trigger "try sending shorter voice notes" once per user
+- `long_voice_hinted` column added to shops table (SQLite + Postgres, with migration)
 
 ### Privacy & Data Controls (NDPR Compliance)
 - Welcome message now includes consent language: "By sending me messages, you agree..."
