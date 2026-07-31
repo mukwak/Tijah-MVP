@@ -9,6 +9,14 @@
 - Fixed by using explicit `if/else` on length instead of `min`/`max`
 - Found during comprehensive 10-user clarification system test (Round 7)
 
+### Comprehensive Long Voice End-of-Day Test (Round 8)
+- 10 user personas simulating end-of-day transaction recording via long voice notes
+- Full replay cycle tested: echo-and-confirm -> confirm_yes -> __replay__ -> NLU -> handler -> DB write
+- DB verification for every transaction: product, quantity, unit_price, total, customer, is_credit, credit records, expenses
+- Scenarios: echo-confirm yes/no, reject-retry, abandon voice for text, sequential confirms, multi-item batch, credit sales, mixed text/voice workflow, double-confirm guard, stale clearing by expense, cross-user DB isolation, one-time hint persistence, TTS splitting of long summaries
+- Grand totals verified: 29 sales, 552,000 naira across 10 users
+- 306 total tests, all passing
+
 ### Comprehensive Clarification System Test (Round 7)
 - 10 user personas across food vendors, electronics, tailoring, auto parts, cosmetics, hair salons, wholesale, and provision stores
 - 29 scenarios testing all clarification paths: price ambiguity (total/each), credit ambiguity (cash/credit), customer fuzzy matching (accept/reject), voice name correction, stale pending clearing, multi-sale auto-complete, mark credit, delete data, and back-to-back clarifications

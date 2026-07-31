@@ -260,7 +260,48 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke)
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
-- [ ] **Smarter long voice note handling** — split long voice notes into chunks or process in segments to reduce data loss (Mama Ngozi)
+- [x] **Smarter long voice note handling** (DONE) — TTS splits long replies into up to 3 voice note chunks; STT echo-and-confirm for very long notes (>45s); one-time hint for long notes (>30s). 306 tests with full DB verification.
+
+---
+
+## Stats from Long Voice End-of-Day Test (Round 8)
+
+*Full end-to-end test of long voice note handling with DB verification.*
+
+| User | Type | Language | Key Flows Tested |
+|------|------|----------|------------------|
+| Mama Nkechi | Food vendor | English | Multi-sale echo-confirm, one-time hint |
+| Iya Basira | Food vendor | Pidgin | Reject -> retry -> confirm, Pidgin hint |
+| Brother Emeka | Hardware | English | 4-item multi-sale, then normal text sale |
+| Sisi Kemi | Cosmetics | English | Abandon voice for text (no phantom sale) |
+| Alhaji Musa | Auto parts | Pidgin | Reject -> confirm brake pad -> confirm shock absorber |
+| Mama Adaeze | Provision | English | Credit sale: is_credit=1, credit record, customer name |
+| Aunty Funke | Hair salon | English | Empty confirm guard, double-confirm = no duplicate |
+| Pastor Grace | Bookshop | English | Text -> voice multi-sale -> text (mixed workflow) |
+| Baba Tunde | Wholesale | English | 8-item text batch + 2-item voice batch, TTS splitting |
+| Mama Chisom | Provision | Pidgin | Credit + cash voice, stale cleared by expense, hint persistence |
+
+### DB Verification Summary
+
+| Metric | Value |
+|--------|:---:|
+| Users | 10 |
+| Total sales in DB | 29 |
+| Grand revenue | 552,000 naira |
+| Credit sales verified | 2 (is_credit, customer, credit record) |
+| Expenses verified | 1 (2,000 naira) |
+| Negative cases (no phantom records) | 4 (rejection, abandon, stale, double-confirm) |
+| Cross-user isolation checks | 10 users verified independently |
+| Total tests | 306 |
+
+### Comparison vs Round 7
+
+| Metric | Round 7 | Round 8 | Change |
+|--------|:---:|:---:|:---:|
+| Total tests | 181 | 306 | +69% coverage |
+| DB verification | None | Full (sales, credits, expenses) | New |
+| Long voice flows tested | 0 | 10 users, all paths | New |
+| Revenue verification | None | 552,000 naira cross-checked | New |
 
 ---
 
