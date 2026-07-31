@@ -1629,17 +1629,15 @@ async def run():
     s1_insights.append("welcome")
 
     # Day 1: Records first sale -- friend showed her how
-    # Note: discovery hints (credit, undo, expenses) only fire AFTER the product
-    # has stock data. Without stock data, the first 2 sales per product get
-    # "hint_stock_unknown" instead. This is the actual UX path for new users.
+    # M7 fix: discovery hints now fire by sale count regardless of stock data
     resp = await _route_intent(S1, {
         "action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag",
         "unit_price": 5000, "total": 15000,
     }, "pidgin")
     check("S1 sale 1 confirmed", "Sold!" in resp)
-    # No stock data -> gets stock tracking hint, not credit hint
-    check("S1 hint 1: stock tracking offer", "how many" in resp.lower() or "count" in resp.lower())
-    s1_insights.append("hint: stock tracking")
+    # Sale 1 -> hint_after_sale (credit hint)
+    check("S1 hint 1: credit hint", "owe" in resp.lower() or "credit" in resp.lower())
+    s1_insights.append("hint: credit")
 
     # Day 1: Second sale (different product)
     resp = await _route_intent(S1, {
@@ -1647,9 +1645,9 @@ async def run():
         "unit_price": 4000, "total": 8000,
     }, "pidgin")
     check("S1 sale 2 confirmed", "Sold!" in resp)
-    # Also gets stock hint (first sale of beans, no stock data)
-    check("S1 hint 2: stock tracking for beans", "how many" in resp.lower() or "count" in resp.lower())
-    s1_insights.append("hint: stock tracking 2")
+    # Sale 2 -> hint_undo
+    check("S1 hint 2: undo hint", "cancel" in resp.lower() or "undo" in resp.lower())
+    s1_insights.append("hint: undo")
 
     # Day 2: Third sale
     resp = await _route_intent(S1, {
@@ -1657,8 +1655,8 @@ async def run():
         "unit_price": 2000, "total": 10000,
     }, "pidgin")
     check("S1 sale 3 confirmed", "Sold!" in resp)
-    # First garri sale -> stock hint again
-    s1_insights.append("hint: stock tracking 3")
+    # Sale 3 -> hint_discover_expenses
+    s1_insights.append("hint: expenses")
 
     # Day 3: Tries the expense feature she learned about
     resp = await _route_intent(S1, {
@@ -1674,14 +1672,15 @@ async def run():
         "unit_price": 3500, "total": 35000,
     }, "pidgin")
     check("S1 sale 4 confirmed", "Sold!" in resp)
+    # Sale 4, no stock data -> stock tracking hint
+    check("S1 hint 4: stock tracking", "how many" in resp.lower() or "count" in resp.lower())
+    s1_insights.append("hint: stock tracking")
 
     resp = await _route_intent(S1, {
         "action": "record_sale", "product": "rice", "quantity": 2, "unit": "bag",
         "unit_price": 5000, "total": 10000,
     }, "pidgin")
     check("S1 sale 5 confirmed", "Sold!" in resp)
-    # Rice has been sold >2 times now, so no more stock hint for rice
-    # But the discovery hint rotation requires has_stock_data=True
     s1_insights.append("sale 5")
 
     # ---- WEEK 2-3: Building habits ----
@@ -1883,9 +1882,9 @@ async def run():
         "action": "record_sale", "product": "soap", "quantity": 5, "unit": "bar",
         "unit_price": 150, "total": 750,
     }, "english")
-    # No stock data -> stock tracking hint (first soap sale)
-    check("S2 sale 2: stock hint", "how many" in resp.lower() or "Sold!" in resp)
-    s2_insights.append("hint: stock tracking")
+    # Sale 2 -> undo hint
+    check("S2 sale 2: undo hint", "cancel" in resp.lower() or "undo" in resp.lower() or "Sold!" in resp)
+    s2_insights.append("hint: undo")
 
     resp = await _route_intent(S2, {
         "action": "record_sale", "product": "coke", "quantity": 12, "unit": "bottle",
@@ -2040,9 +2039,9 @@ async def run():
         "unit_price": 5000, "total": 5000,
     }, "english")
     check("S3 sale 1 confirmed", "Sold!" in resp)
-    # No stock data -> stock tracking hint
-    check("S3 hint 1: stock tracking", "how many" in resp.lower() or "Sold!" in resp)
-    s3_insights.append("hint: stock tracking")
+    # Sale 1 -> credit hint
+    check("S3 hint 1: credit hint", "owe" in resp.lower() or "credit" in resp.lower() or "Sold!" in resp)
+    s3_insights.append("hint: credit")
 
     # Day 1: Second sale (different product)
     resp = await _route_intent(S3, {
@@ -2050,7 +2049,8 @@ async def run():
         "unit_price": 3000, "total": 3000,
     }, "english")
     check("S3 sale 2 confirmed", "Sold!" in resp)
-    s3_insights.append("hint: stock tracking 2")
+    # Sale 2 -> undo hint
+    s3_insights.append("hint: undo")
 
     # Day 2: Credit sale -- customer can't pay today
     resp = await _route_intent(S3, {
@@ -2070,13 +2070,13 @@ async def run():
     check("S3 credit 2 recorded", "3,500" in resp)
     s3_insights.append("used: credits")
 
-    # Week 2: Sale 3 (new product, no stock data -> stock hint)
+    # Week 2: Sale 4 (new product, sale_count=4, no stock -> stock hint)
     resp = await _route_intent(S3, {
         "action": "record_sale", "product": "weaving", "quantity": 1, "unit": "piece",
         "unit_price": 15000, "total": 15000,
     }, "english")
-    check("S3 sale 3 confirmed", "Sold!" in resp)
-    s3_insights.append("hint: stock tracking 3")
+    check("S3 sale 4 confirmed", "Sold!" in resp)
+    s3_insights.append("hint: stock tracking")
 
     # Uses expenses
     resp = await _route_intent(S3, {
@@ -2199,13 +2199,9 @@ async def run():
     check("S1 welcome not overwhelming", len(get_response("welcome", "pidgin")) < 400)
     check("S2 welcome not overwhelming", len(get_response("welcome", "english")) < 400)
 
-    # Hint progression: without stock data, first hints are stock tracking offers
-    # This is a UX insight: low-literate users who don't use stock tracking
-    # get the same "tell me how many X you have" hint repeatedly instead of
-    # the progressive discovery hints (credits, undo, expenses).
-    # Once they add stock, the discovery hints start firing.
-    check("Early hints are stock tracking", s1_insights[1] == "hint: stock tracking")
-    check("Stock hints repeat for new products", s1_insights[2] == "hint: stock tracking 2")
+    # Hint progression: M7 fix ensures hints fire by sale count regardless of stock data
+    check("Early hints are progressive", s1_insights[1] == "hint: credit")
+    check("Second hint is undo", s1_insights[2] == "hint: undo")
     check("Expenses discovered via expense hint", "used: expenses" in s1_insights)
 
     print("\n" + "=" * 60)

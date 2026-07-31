@@ -299,6 +299,20 @@ async def daily_nudge(request: Request):
             msg += get_response("nudge_debt_aging", lang,
                                 customer=customer, amount=_fmt(amount), days=days_ago)
 
+        # Top seller insight
+        if sales_count > 0:
+            cursor = await db.execute(
+                """SELECT p.name, SUM(sa.total) as rev FROM sales sa
+                   JOIN products p ON sa.product_id = p.id
+                   WHERE sa.phone = ? AND date(sa.created_at) = date('now', '+1 hours')
+                   GROUP BY p.name ORDER BY rev DESC LIMIT 1""",
+                (phone,),
+            )
+            top = await cursor.fetchone()
+            if top and top[0] != "(general sales)":
+                msg += get_response("nudge_top_seller", lang,
+                                    product=top[0], total=_fmt(top[1]))
+
         # Low stock alert: products with stock tracked and quantity <= 5
         cursor = await db.execute(
             """SELECT name, stock_qty, unit FROM products

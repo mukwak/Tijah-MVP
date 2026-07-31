@@ -439,6 +439,14 @@ RESPONSES = {
         "pidgin": "\n\nYou fit ask \"wetin I sell today?\" to see everything wey you don record.",
         "english": "\n\nYou can ask \"what did I sell today?\" to see everything you've recorded.",
     },
+    "hint_discover_weekly": {
+        "pidgin": "\n\nYou don dey record well! Try ask \"how my week go?\" or \"wetin happen this month?\" to see your progress.",
+        "english": "\n\nYou're recording well! Try asking \"how was my week?\" or \"how was this month?\" to see your progress.",
+    },
+    "nudge_top_seller": {
+        "pidgin": "\n\nYour top seller today na {product} ({total} naira). Keep am stocked!",
+        "english": "\n\nYour top seller today was {product} ({total} naira). Keep it stocked!",
+    },
 }
 
 

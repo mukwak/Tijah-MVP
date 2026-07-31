@@ -2,6 +2,24 @@
 
 ## Alpha 0.4 - July 2026
 
+### Fix: Discovery Hints Gated Behind Stock Tracking (M7)
+- Progressive discovery hints (credits, undo, expenses, etc.) were only shown when the product had stock data
+- Without stock data, users got repetitive "tell me how many X you have" hints instead of learning about features
+- Fixed: hints now fire by total sale count regardless of stock data
+- Stock tracking hint moved to sale 4 (as one hint in the progression, not the default gate)
+- New progression: sale 1 (credits) -> 2 (undo) -> 3 (expenses) -> 4 (stock) -> 5,8 (dynamic) -> 12 (backdate) -> 15 (check sales) -> 20 (weekly summary)
+- 409 tests passing
+
+### Weekly/Monthly Summary Discoverability (M8)
+- New `hint_discover_weekly` template fires at sale 20: "Try asking 'how was my week?' to see your progress"
+- Previously, period comparisons were completely undiscoverable
+
+### Evening Nudge Top Seller Insight (M9)
+- Evening nudge now includes top-selling product by revenue for the day
+- "Your top seller today was rice (15,000 naira). Keep it stocked!"
+- Excludes "(general sales)" bulk entries
+- New `nudge_top_seller` response template (English + Pidgin)
+
 ### Fix: Customer Fuzzy Match False Positives (M6)
 - `_find_similar_customer` used `min`/`max` with `key=len` to pick shorter/longer strings for character overlap comparison
 - When both names had the same character count (spaces removed), both `min` and `max` returned the first argument — comparing a name to itself (100% match)

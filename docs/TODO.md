@@ -57,11 +57,17 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ## Medium Priority (from Round 9)
 
-- [ ] **Discovery hints gated behind stock tracking (M7)**
-  The progressive discovery hints (sale 1→credits, sale 2→undo, sale 3→expenses, etc.) only fire when `has_stock_data=True` for the product being sold. Without stock data, the first 2 sales per product show "If you tell me how many X you have..." and sales 3+ show nothing. This means low-literate voice-first users -- the primary target audience -- never see the onboarding hints that teach them about credit tracking, undo, expenses, reports, or backdating. They just get repetitive stock tracking offers.
-  *Found during: Round 9 3-month simulation. Affects all 3 users.*
-  Fix: Show discovery hints regardless of stock data. Use the `hint_stock_unknown` as an occasional hint at sales 2 and 5, but keep the main progression (credits→undo→expenses→stock→report→backdate→check_sales) as the primary flow.
-  Files: `app/handlers.py` lines 201-233 (handle_record_sale hint logic)
+- [x] **Discovery hints gated behind stock tracking (M7)** (FIXED)
+  Discovery hints now fire by total sale count regardless of stock data. Sale 1: credits, sale 2: undo, sale 3: expenses, sale 4 (no stock): stock tracking, sale 5+: dynamic discovery, sale 12: backdate, sale 15: check sales, sale 20: weekly summary.
+  Files: `app/handlers.py` (handle_record_sale hint logic)
+
+- [x] **Weekly/monthly summary not discoverable (M8)** (FIXED)
+  New `hint_discover_weekly` template fires at sale 20: "Try asking 'how was my week?' to see your progress."
+  Files: `app/handlers.py`, `app/responses.py`
+
+- [x] **Evening nudge lacks top seller insight (M9)** (FIXED)
+  Evening nudge now includes top-selling product by revenue: "Your top seller today was rice (15,000 naira)." Excludes "(general sales)" bulk entries.
+  Files: `app/main.py` (daily_nudge), `app/responses.py`
 
 ---
 

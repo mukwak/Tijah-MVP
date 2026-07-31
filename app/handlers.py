@@ -198,38 +198,32 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         credit_note=credit_note, price_detail=price_detail,
     ) + low_stock_msg
 
-    # One contextual nudge — the natural next step for this action
-    if not has_stock_data:
-        # First couple of sales of an untracked product: offer stock tracking
-        product_sales = (await (await db.execute(
-            "SELECT COUNT(*) FROM sales WHERE phone = ? AND product_id = ?",
-            (phone, product_id),
-        )).fetchone())[0]
-        if product_sales <= 2:
-            result += get_response("hint_stock_unknown", lang, product=product)
-    else:
-        # Rotate discovery hints as the user records more sales
-        sale_count = (await (await db.execute(
-            "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
-        )).fetchone())[0]
-        if sale_count == 1:
-            result += get_response("hint_after_sale", lang)
-        elif sale_count == 2:
-            result += get_response("hint_undo", lang)
-        elif sale_count == 3:
-            result += get_response("hint_discover_expenses", lang)
-        elif sale_count == 5:
-            hint = await _get_discovery_hint(db, phone, lang)
-            if hint:
-                result += hint
-        elif sale_count == 8:
-            hint = await _get_discovery_hint(db, phone, lang)
-            if hint:
-                result += hint
-        elif sale_count == 12:
-            result += get_response("hint_discover_backdate", lang)
-        elif sale_count == 15:
-            result += get_response("hint_discover_check_sales", lang)
+    # One contextual nudge — rotate discovery hints by total sale count
+    sale_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+    if sale_count == 1:
+        result += get_response("hint_after_sale", lang)
+    elif sale_count == 2:
+        result += get_response("hint_undo", lang)
+    elif sale_count == 3:
+        result += get_response("hint_discover_expenses", lang)
+    elif sale_count == 4 and not has_stock_data:
+        result += get_response("hint_stock_unknown", lang, product=product)
+    elif sale_count == 5:
+        hint = await _get_discovery_hint(db, phone, lang)
+        if hint:
+            result += hint
+    elif sale_count == 8:
+        hint = await _get_discovery_hint(db, phone, lang)
+        if hint:
+            result += hint
+    elif sale_count == 12:
+        result += get_response("hint_discover_backdate", lang)
+    elif sale_count == 15:
+        result += get_response("hint_discover_check_sales", lang)
+    elif sale_count == 20:
+        result += get_response("hint_discover_weekly", lang)
 
     return result
 
