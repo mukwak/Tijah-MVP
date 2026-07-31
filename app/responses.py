@@ -254,20 +254,8 @@ RESPONSES = {
         "english": "I didn't get that. Try something like:\n\"I sold 5 bags of rice for 2 thousand naira\"",
     },
     "clarify": {
-        "pidgin": (
-            "I no too understand that one well. You fit try again?\n\n"
-            "For example:\n"
-            "\"I sell 3 bag rice, 5 thousand\"\n"
-            "\"I buy 20 indomie\"\n"
-            "\"Mama Joy owe me 5 thousand\""
-        ),
-        "english": (
-            "I didn't quite understand that. Can you try again?\n\n"
-            "For example:\n"
-            "\"I sold 3 bags of rice for 5 thousand\"\n"
-            "\"I bought 20 indomie\"\n"
-            "\"Mama Joy owes me 5 thousand\""
-        ),
+        "pidgin": "I no understand that one well. Try tell me again, like \"I sell 3 bag rice, 5 thousand.\"",
+        "english": "I didn't quite get that. Try again, like \"I sold 3 bags of rice for 5 thousand.\"",
     },
 
     # === CONFIRMATION ===
