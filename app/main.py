@@ -428,6 +428,10 @@ async def _process_message(message: dict):
         # Full NLU parse via Gemini
         intent = await parse_intent(text, lang)
         log.info(f"Intent: {intent}")
+        # If NLU failed to parse, ask for clarification instead of silent fallback
+        if intent.get("error") and intent.get("action") == "help":
+            log.warning(f"NLU parse failed: {intent['error']}")
+            intent = {"action": "_clarify"}
 
     # Use detected language from NLU, fall back to stored preference
     lang = intent.pop("detected_language", lang)
@@ -576,6 +580,9 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
 
     if action == "help":
         return get_response("help", lang)
+
+    if action == "_clarify":
+        return get_response("clarify", lang)
 
     return get_response("not_understood", lang)
 

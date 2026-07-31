@@ -2,11 +2,12 @@
 Uses Google Gemini Flash (cheapest option) for intent parsing."""
 import json
 import os
+import re
 import httpx
 
 # Gemini API key (use Google AI Studio free tier / cheap tier)
 GEMINI_API_KEY = os.getenv("GOOGLE_AI_API_KEY", "")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 
 SYSTEM_PROMPT = """You are Tijah, a smart shop assistant for Nigerian market traders.
 You understand Nigerian English and Nigerian Pidgin perfectly.
@@ -242,6 +243,23 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
             resp.raise_for_status()
             data = resp.json()
             result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-            return json.loads(result_text)
+            return _parse_json_lenient(result_text)
     except Exception as e:
+        return {"action": "help", "error": str(e)}
+
+
+def _parse_json_lenient(text: str) -> dict:
+    """Parse JSON leniently — handle comments, trailing commas from Gemini 2.5."""
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    # Strip // and /* */ comments
+    cleaned = re.sub(r'//[^\n]*', '', text)
+    cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
+    # Remove trailing commas before } or ]
+    cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
+    try:
+        return json.loads(cleaned)
+    except json.JSONDecodeError as e:
         return {"action": "help", "error": str(e)}
