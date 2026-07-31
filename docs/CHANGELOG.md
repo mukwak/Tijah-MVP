@@ -2,6 +2,12 @@
 
 ## Alpha 0.4 - July 2026
 
+### Simulation Round 6: No Medium/High Issues Found
+- System validated with 3 new personas (food vendor, electronics seller, tailor) across 3 months
+- All Round 5 fixes confirmed working: multi-sale auto-complete, retroactive credit, price/credit clarification
+- Only 3 new low-severity issues found (cosmetic/nice-to-have)
+- All personas daily users, all would recommend, all retention risk "very low"
+
 ### Retroactive Credit Marking
 - New `mark_credit` action: "that was on credit" / "na credit" marks the last recorded sale as credit
 - Finds the most recent non-credit sale, updates it, and creates a credit record

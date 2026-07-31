@@ -204,6 +204,29 @@ Users often wait until they're done serving customers to record everything at on
 
 ---
 
+## From Simulation Round 6
+
+*No medium or high severity issues found. System is stable.*
+
+### Low Severity
+
+- [ ] **Price ambiguity message echoes recalculated total, not user's original number**
+  "3 phone case 1500" — NLU interprets as 1,500 each, handler recalculates total to 4,500. Clarification asks "is that 4,500 total or each?" but user said "1500". Should echo the user's original number.
+  *Affected user: Emeka.*
+  Files: `app/handlers.py` (handle_record_sale, price ambiguity block)
+
+- [ ] **No multi-stock handler for restocking multiple products at once**
+  "I bought 50 phone case, 30 charger, 20 power bank" requires 3 separate messages. High-volume shops restock many products at once.
+  *Affected user: Emeka.*
+  Files: `app/nlu.py`, `app/handlers.py`
+
+- [ ] **No "all time" summary period**
+  "How much have I made since I started?" has no answer. Only today/yesterday/week/month are supported. Users who've been on 3+ months want cumulative stats.
+  *Affected user: Halima.*
+  Files: `app/handlers.py` (handle_daily_summary), `app/nlu.py`
+
+---
+
 ## Feature Requests (from simulated users)
 
 - [x] **Profit tracking** — "How much profit did I make today?" (Chidi) (DONE)
@@ -224,6 +247,30 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [ ] **Smarter long voice note handling** — split long voice notes into chunks or process in segments to reduce data loss (Mama Ngozi)
+
+---
+
+## Stats from Simulation Round 6
+
+| Metric | Iya Blessing | Emeka | Halima |
+|--------|:---:|:---:|:---:|
+| Features discovered | 10/15 | 14/15 | 13/15 |
+| Would recommend | Yes | Yes (3 referrals) | Yes |
+| Would pay | 300-500/mo | 2-3k/mo | 1-2k/mo |
+| Usage frequency | Daily | Daily | Daily |
+| Retention risk | Very low | Very low | Very low |
+| Top frustration | None | Price not auto-updating | Voice misheard "ankara" |
+
+### Comparison vs Simulation Round 5
+
+| Metric | Round 5 | Round 6 | Change |
+|--------|:---:|:---:|:---:|
+| New medium issues found | 3 | 0 | All clear |
+| New low issues found | 5 | 3 | Fewer |
+| Multi-sale batch flow | Broke on missing prices | Smooth with auto-complete | Fixed |
+| Retroactive credit | Not possible | Works | Fixed |
+| Recommend rate | 3/3 | 3/3 | Maintained |
+| Retention risk (worst) | Low | Very low | Improved |
 
 ---
 
