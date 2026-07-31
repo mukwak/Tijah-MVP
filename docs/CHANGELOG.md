@@ -2,6 +2,16 @@
 
 ## Alpha 0.4 - July 2026
 
+### Fix: Price Ambiguity Shows User's Original Number
+- Handler now saves `raw_unit_price`/`raw_total` before recalculating totals
+- Clarification message echoes the user's actual number, not the recalculated value
+- Confirm Yes uses `_price_as_total`, Confirm No uses `_price_as_each` for correct math
+
+### Fix: Stale Pending Actions Cleared on New Business Action
+- Any new business action (sale, stock, credit, etc.) now clears old pending actions before processing
+- Prevents "yes" from confirming a stale price clarification or customer match after the user moved on
+- Confirmation actions (`confirm_yes`, `confirm_no`) and `_clarify` are excluded from clearing
+
 ### Simulation Round 6: No Medium/High Issues Found
 - System validated with 3 new personas (food vendor, electronics seller, tailor) across 3 months
 - All Round 5 fixes confirmed working: multi-sale auto-complete, retroactive credit, price/credit clarification

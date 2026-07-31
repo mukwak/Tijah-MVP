@@ -398,22 +398,24 @@ async def run():
 
     # --- TEST 32: Price ambiguity asks for clarification ---
     print("\n--- TEST 32: Price ambiguity clarification ---")
+    # "3 bag rice 25 thousand" — NLU sends unit_price=25000 (user's number), ambiguous
     price_resp = await _route_intent(PHONE, {
         "action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag",
-        "unit_price": 25000, "total": 75000, "price_ambiguous": True,
+        "unit_price": 25000, "total": 25000, "price_ambiguous": True,
     }, "english")
     check("Price ambiguity asks question", "total" in price_resp.lower() and "each" in price_resp.lower())
-    check("Price ambiguity has yes/no", 'say "yes"' in price_resp.lower() or 'say "no"' in price_resp.lower())
-    # Confirm "yes" = total interpretation
+    check("Price ambiguity echoes user's number", "25,000" in price_resp)
+    # Confirm "yes" = 25k total (8,333 each)
     confirm_resp = await _route_intent(PHONE, {"action": "confirm_yes"}, "english")
     check("Price confirm records sale", "Sold!" in confirm_resp)
-    check("Price confirm uses total", "75,000" in confirm_resp)
+    check("Price confirm uses total", "25,000" in confirm_resp)
 
     # --- TEST 33: Price ambiguity — "no" means each ---
     print("\n--- TEST 33: Price ambiguity 'each' path ---")
+    # "2 bag beans 10 thousand" — is it 10k total or 10k each?
     await _route_intent(PHONE, {
         "action": "record_sale", "product": "beans", "quantity": 2, "unit": "bag",
-        "unit_price": 10000, "total": 20000, "price_ambiguous": True,
+        "unit_price": 10000, "total": 10000, "price_ambiguous": True,
     }, "english")
     # Say "no" = each interpretation (10k each = 20k total)
     each_resp = await _route_intent(PHONE, {"action": "confirm_no"}, "english")

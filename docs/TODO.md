@@ -210,10 +210,11 @@ Users often wait until they're done serving customers to record everything at on
 
 ### Low Severity
 
-- [ ] **Price ambiguity message echoes recalculated total, not user's original number**
-  "3 phone case 1500" — NLU interprets as 1,500 each, handler recalculates total to 4,500. Clarification asks "is that 4,500 total or each?" but user said "1500". Should echo the user's original number.
-  *Affected user: Emeka.*
-  Files: `app/handlers.py` (handle_record_sale, price ambiguity block)
+- [x] **Price ambiguity message echoes recalculated total, not user's original number** (FIXED)
+  Handler now saves `raw_unit_price`/`raw_total` before recalculation and uses the user's original number in the clarification message.
+
+- [x] **Stale pending actions fire on wrong context** (FIXED)
+  New business actions now clear any old pending action before processing. Prevents "yes" from confirming a stale price clarification or customer match after the user moved on.
 
 - [ ] **No multi-stock handler for restocking multiple products at once**
   "I bought 50 phone case, 30 charger, 20 power bank" requires 3 separate messages. High-volume shops restock many products at once.

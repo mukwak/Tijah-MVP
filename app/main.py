@@ -440,6 +440,13 @@ async def _process_message(message: dict):
     if is_voice:
         intent["_is_voice"] = True
 
+    # Clear stale pending actions when user sends a new business message
+    # (not confirm_yes/no — those need the pending action)
+    action = intent.get("action", "")
+    if action not in ("confirm_yes", "confirm_no", "_clarify", ""):
+        from app.handlers import _clear_pending
+        await _clear_pending(db, phone)
+
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
 

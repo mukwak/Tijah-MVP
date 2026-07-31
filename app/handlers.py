@@ -56,6 +56,10 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     customer = data.get("customer")
     is_credit = data.get("is_credit", False)
 
+    # Save original NLU values before recalculation (needed for ambiguity check)
+    raw_unit_price = unit_price
+    raw_total = total
+
     # Always recalculate — never trust LLM math
     if unit_price and quantity:
         total = unit_price * quantity
@@ -75,10 +79,17 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
 
     # Price ambiguity: "3 bags for 25 thousand" — each or total?
     if data.get("price_ambiguous") and quantity > 1:
-        each_total = unit_price * quantity
-        total_each = total / quantity if total else unit_price
-        data["_price_each"] = unit_price  # NLU's interpretation (treated as total)
-        data["_price_total"] = total
+        # Figure out the user's stated number from raw NLU values
+        # NLU might set unit_price=X and total=X (same), or total=X*qty
+        # Use raw_unit_price as the user's number (what they actually said)
+        user_price = raw_unit_price or raw_total
+        as_total = user_price                    # interpretation: user_price is the total
+        as_each_unit = user_price / quantity     # ... so each unit costs this
+        as_each = user_price                     # interpretation: user_price is per-unit
+        as_each_total = user_price * quantity    # ... so total is this
+        # Save both interpretations for confirm handler
+        data["_price_as_total"] = as_total       # if user meant total
+        data["_price_as_each"] = as_each         # if user meant each (per unit)
         await _save_pending(db, phone, {
             "action": "price_clarification",
             "data": data,
@@ -86,16 +97,16 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         })
         if lang == "pidgin":
             return (
-                f"You talk {_fmt(quantity)} {unit} {product} for {_fmt(total)} naira.\n\n"
-                f"Na {_fmt(total)} total, abi {_fmt(total)} each?\n\n"
-                f"Say \"yes\" if na {_fmt(total)} total ({_fmt(total_each)} each).\n"
-                f"Say \"no\" if na {_fmt(total)} each ({_fmt(each_total)} total)."
+                f"You talk {_fmt(quantity)} {unit} {product} for {_fmt(user_price)} naira.\n\n"
+                f"Na {_fmt(user_price)} total, abi {_fmt(user_price)} each?\n\n"
+                f"Say \"yes\" if na {_fmt(as_total)} total ({_fmt(as_each_unit)} each).\n"
+                f"Say \"no\" if na {_fmt(user_price)} each ({_fmt(as_each_total)} total)."
             )
         return (
-            f"You said {_fmt(quantity)} {unit} {product} for {_fmt(total)} naira.\n\n"
-            f"Is that {_fmt(total)} total, or {_fmt(total)} each?\n\n"
-            f"Say \"yes\" if {_fmt(total)} total ({_fmt(total_each)} each).\n"
-            f"Say \"no\" if {_fmt(total)} each ({_fmt(each_total)} total)."
+            f"You said {_fmt(quantity)} {unit} {product} for {_fmt(user_price)} naira.\n\n"
+            f"Is that {_fmt(user_price)} total, or {_fmt(user_price)} each?\n\n"
+            f"Say \"yes\" if {_fmt(as_total)} total ({_fmt(as_each_unit)} each).\n"
+            f"Say \"no\" if {_fmt(user_price)} each ({_fmt(as_each_total)} total)."
         )
 
     # Credit ambiguity: customer mentioned but credit not explicit
@@ -1217,10 +1228,16 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     if pending["action"] == "delete_data_confirmed":
         return await handle_delete_data_confirmed(phone, pending_data, pending_lang)
 
-    # Price clarification: "yes" = total interpretation (as-is)
+    # Price clarification: "yes" = total interpretation
     if pending["action"] == "price_clarification":
         pending_data.pop("price_ambiguous", None)
-        # "yes" = the amount is total, keep as-is
+        # "yes" = the amount is the total
+        qty = float(pending_data.get("quantity", 1))
+        as_total = float(pending_data.pop("_price_as_total", 0))
+        pending_data.pop("_price_as_each", None)
+        if as_total and qty:
+            pending_data["total"] = as_total
+            pending_data["unit_price"] = as_total / qty
         return await handle_record_sale(phone, pending_data, pending_lang)
 
     # Credit clarification: "yes" = cash (not credit)
@@ -1267,13 +1284,12 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     # Price clarification: "no" = each interpretation — recalculate
     if pending["action"] == "price_clarification":
         pending_data.pop("price_ambiguous", None)
-        # "no" = the amount is per-unit, recalculate total
+        # "no" = the amount is per-unit price
         qty = float(pending_data.get("quantity", 1))
-        price = float(pending_data.get("_price_total", 0)) or float(pending_data.get("unit_price", 0))
-        pending_data["unit_price"] = price
-        pending_data["total"] = price * qty
-        pending_data.pop("_price_each", None)
-        pending_data.pop("_price_total", None)
+        as_each = float(pending_data.pop("_price_as_each", 0)) or float(pending_data.get("unit_price", 0))
+        pending_data.pop("_price_as_total", None)
+        pending_data["unit_price"] = as_each
+        pending_data["total"] = as_each * qty
         return await handle_record_sale(phone, pending_data, pending_lang)
 
     # Credit clarification: "no" = credit (not cash)
