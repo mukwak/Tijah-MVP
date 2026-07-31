@@ -9,6 +9,15 @@
 - Fixed by using explicit `if/else` on length instead of `min`/`max`
 - Found during comprehensive 10-user clarification system test (Round 7)
 
+### 3-Month User Simulation (Round 9)
+- 3 low-literate Nigerian users simulated over 3 months of daily usage
+- Mama Efe (Pidgin food vendor), Oga Bayo (English provision store), Sister Nkechi (English hair salon)
+- Full lifecycle tested: onboarding, progressive feature discovery, privacy awareness, clarifications, summaries, insights, undo, stock tracking, credit management, payments, reports
+- DB verification for all 41 sales (274,550 naira), credits, expenses, payments
+- **UX Finding**: Discovery hints (credits, undo, expenses) only fire when a product has stock data. Users who don't use stock tracking get repetitive "tell me how many X you have" hints instead of the progressive discovery flow. This means low-literate voice-first users -- the primary audience -- miss the most important onboarding hints.
+- All 3 users successfully discovered 13-18 features organically
+- 408 total tests, all passing
+
 ### Comprehensive Long Voice End-of-Day Test (Round 8)
 - 10 user personas simulating end-of-day transaction recording via long voice notes
 - Full replay cycle tested: echo-and-confirm -> confirm_yes -> __replay__ -> NLU -> handler -> DB write

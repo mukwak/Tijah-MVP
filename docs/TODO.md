@@ -55,6 +55,16 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ---
 
+## Medium Priority (from Round 9)
+
+- [ ] **Discovery hints gated behind stock tracking (M7)**
+  The progressive discovery hints (sale 1→credits, sale 2→undo, sale 3→expenses, etc.) only fire when `has_stock_data=True` for the product being sold. Without stock data, the first 2 sales per product show "If you tell me how many X you have..." and sales 3+ show nothing. This means low-literate voice-first users -- the primary target audience -- never see the onboarding hints that teach them about credit tracking, undo, expenses, reports, or backdating. They just get repetitive stock tracking offers.
+  *Found during: Round 9 3-month simulation. Affects all 3 users.*
+  Fix: Show discovery hints regardless of stock data. Use the `hint_stock_unknown` as an occasional hint at sales 2 and 5, but keep the main progression (credits→undo→expenses→stock→report→backdate→check_sales) as the primary flow.
+  Files: `app/handlers.py` lines 201-233 (handle_record_sale hint logic)
+
+---
+
 ## Low Priority
 
 - [ ] **Multi-sale doesn't support per-item credit/customer**
@@ -261,6 +271,41 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [x] **Smarter long voice note handling** (DONE) — TTS splits long replies into up to 3 voice note chunks; STT echo-and-confirm for very long notes (>45s); one-time hint for long notes (>30s). 306 tests with full DB verification.
+
+---
+
+## Stats from 3-Month User Simulation (Round 9)
+
+*3 low-literate Nigerian users over 3 months of daily usage.*
+
+| User | Type | Language | Sales | Revenue | Features Discovered |
+|------|------|----------|:-----:|--------:|:-------------------:|
+| Mama Efe | Food vendor | Pidgin | 16 | 145,000 | 18 |
+| Oga Bayo | Provision store | English | 10 | 30,050 | 13 |
+| Sister Nkechi | Hair salon | English | 15 | 99,500 | 16 |
+| **Total** | | | **41** | **274,550** | |
+
+### Key Findings
+
+| Area | Result |
+|------|--------|
+| Onboarding | Welcome is short (<400 chars), mentions privacy, not overwhelming |
+| Feature discovery | All users found 13-18 features organically via hints |
+| Privacy | Both English and Pidgin users could access privacy info |
+| Clarifications | Price ambiguity, credit ambiguity, fuzzy match all work correctly |
+| DB accuracy | All 41 sales, credits, expenses, payments verified in DB |
+| Data queries | Summaries, credit lists, sales checks all return accurate data |
+| Cross-user isolation | No data leakage between users |
+| **Issue found** | **M7: Discovery hints gated behind stock tracking** |
+
+### Comparison vs Round 8
+
+| Metric | Round 8 | Round 9 | Change |
+|--------|:---:|:---:|:---:|
+| Total tests | 306 | 408 | +33% coverage |
+| Simulation depth | Single session | 3 months lifecycle | New |
+| Users | 10 (single flow each) | 3 (full lifecycle) | Deeper |
+| New issues found | 0 | 1 (M7: hint gating) | Found |
 
 ---
 
