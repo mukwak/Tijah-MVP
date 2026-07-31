@@ -1876,8 +1876,10 @@ async def _find_similar_customer(db, phone, name):
             return existing, "fuzzy"
         # High character overlap
         if len(name_lower) >= 4 and len(existing_lower) >= 4:
-            shorter = min(name_lower, existing_lower, key=len)
-            longer = max(name_lower, existing_lower, key=len)
+            if len(name_lower) <= len(existing_lower):
+                shorter, longer = name_lower, existing_lower
+            else:
+                shorter, longer = existing_lower, name_lower
             matches = sum(1 for c in shorter if c in longer)
             if matches / len(shorter) >= 0.8:
                 return existing, "fuzzy"

@@ -3,7 +3,7 @@ import asyncio
 import os
 import pathlib
 
-# Force local SQLite for testing — use unique name to avoid lock conflicts
+# Force local SQLite for testing -- use unique name to avoid lock conflicts
 import time as _time
 _db_name = f"test_smoke_{os.getpid()}.db"
 os.environ["DATABASE_URL"] = ""
@@ -22,7 +22,7 @@ from app.database import get_db, close_db
 from app.preclassifier import preclassify
 from app.main import _route_intent
 from app.responses import get_response
-from app.handlers import _peek_pending
+from app.handlers import _peek_pending, _clear_pending
 
 PHONE = "2349000000001"
 passed = 0
@@ -233,7 +233,7 @@ async def run():
     check("Voice credit recorded", "CC Tolu" in resp and "1,500" in resp)
     check("Voice name hint shown", "change CC Tolu to" in resp)
 
-    # User re-sends with correct name and same amount — should rename, not duplicate
+    # User re-sends with correct name and same amount -- should rename, not duplicate
     intent2 = {"action": "record_credit", "customer": "Sisi Tolu", "amount": 1500,
                "note": "soap"}
     resp2 = await _route_intent(PHONE4, intent2, "english")
@@ -297,7 +297,7 @@ async def run():
     # Test delete flow: initiate then confirm
     del_result = await _route_intent(PHONE, {"action": "delete_data"}, "english")
     check("Delete asks for confirmation", "sure" in del_result.lower() or "yes" in del_result.lower())
-    # Confirm yes — should delete
+    # Confirm yes -- should delete
     confirm_result = await _route_intent(PHONE, {"action": "confirm_yes"}, "english")
     check("Delete confirmed", "deleted" in confirm_result.lower() or "cleared" in confirm_result.lower())
     # Welcome message includes consent
@@ -398,7 +398,7 @@ async def run():
 
     # --- TEST 32: Price ambiguity asks for clarification ---
     print("\n--- TEST 32: Price ambiguity clarification ---")
-    # "3 bag rice 25 thousand" — NLU sends unit_price=25000 (user's number), ambiguous
+    # "3 bag rice 25 thousand" -- NLU sends unit_price=25000 (user's number), ambiguous
     price_resp = await _route_intent(PHONE, {
         "action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag",
         "unit_price": 25000, "total": 25000, "price_ambiguous": True,
@@ -410,9 +410,9 @@ async def run():
     check("Price confirm records sale", "Sold!" in confirm_resp)
     check("Price confirm uses total", "25,000" in confirm_resp)
 
-    # --- TEST 33: Price ambiguity — "no" means each ---
+    # --- TEST 33: Price ambiguity -- "no" means each ---
     print("\n--- TEST 33: Price ambiguity 'each' path ---")
-    # "2 bag beans 10 thousand" — is it 10k total or 10k each?
+    # "2 bag beans 10 thousand" -- is it 10k total or 10k each?
     await _route_intent(PHONE, {
         "action": "record_sale", "product": "beans", "quantity": 2, "unit": "bag",
         "unit_price": 10000, "total": 10000, "price_ambiguous": True,
@@ -486,7 +486,7 @@ async def run():
     # Mango still needs price
     check("Still needs mango price", "mango" in price_resp.lower())
 
-    # Set mango price too — should auto-complete and clear pending
+    # Set mango price too -- should auto-complete and clear pending
     price_resp2 = await _route_intent(PHONE, {
         "action": "set_price", "product": "mango", "unit": "piece", "sell_price": 150,
     }, "english")
@@ -501,6 +501,387 @@ async def run():
     check("'that was on credit'", preclassify("that was on credit") == {"action": "mark_credit"})
     check("'na credit'", preclassify("na credit") == {"action": "mark_credit"})
     check("'mark it as credit'", preclassify("mark it as credit") == {"action": "mark_credit"})
+
+    # ==========================================================================
+    # COMPREHENSIVE VOICE CLARIFICATION TESTS -- 10 Users, 24 Scenarios
+    # ==========================================================================
+    print("\n" + "=" * 60)
+    print("VOICE CLARIFICATION SYSTEM -- 10 User Simulation")
+    print("=" * 60)
+
+    # -- USER 1: Mama Blessing -- Pidgin food vendor --
+    U1 = "2349100000001"
+    await db.execute("INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (U1,))
+    await db.commit()
+
+    # T40: Price ambiguity in Pidgin
+    print("\n--- T40: [Mama Blessing] Price ambiguity (Pidgin) ---")
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "garri", "quantity": 5, "unit": "bag",
+        "unit_price": 3000, "total": 3000, "price_ambiguous": True,
+    }, "pidgin")
+    check("Pidgin asks total or each", "total" in resp.lower() and "each" in resp.lower())
+    check("Pidgin echoes user's 3,000", "3,000" in resp)
+    check("Pidgin shows both interpretations", "15,000" in resp)  # 3000 * 5 = 15000
+
+    # T41: Confirm yes -> 3000 is the total
+    print("\n--- T41: [Mama Blessing] Confirm total (Pidgin) ---")
+    resp = await _route_intent(U1, {"action": "confirm_yes"}, "pidgin")
+    check("Total path records sale", "Sold!" in resp)
+    check("Total is 3,000", "3,000" in resp)
+    check("Unit price is 600 each", "600" in resp)  # 3000/5
+
+    # T42: Credit ambiguity in Pidgin
+    print("\n--- T42: [Mama Blessing] Credit ambiguity (Pidgin) ---")
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "beans", "quantity": 2, "unit": "bag",
+        "unit_price": 4000, "total": 8000, "customer": "Iya Risi",
+        "is_credit": False, "credit_ambiguous": True,
+    }, "pidgin")
+    check("Pidgin asks cash or credit", "cash" in resp.lower() and "credit" in resp.lower())
+    check("Pidgin mentions customer", "Iya Risi" in resp)
+
+    # T43: Confirm yes -> cash
+    print("\n--- T43: [Mama Blessing] Confirm cash ---")
+    resp = await _route_intent(U1, {"action": "confirm_yes"}, "pidgin")
+    check("Cash path records sale", "Sold!" in resp)
+    # Verify no credit entry was created
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND LOWER(customer) = 'iya risi'", (U1,))
+    check("No credit created for cash sale", (await cursor.fetchone())[0] == 0)
+
+    # -- USER 2: Emeka -- English electronics seller --
+    U2 = "2349100000002"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U2,))
+    await db.commit()
+
+    # T44: Price ambiguity -> each path
+    print("\n--- T44: [Emeka] Price ambiguity -> each ---")
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "phone case", "quantity": 4, "unit": "piece",
+        "unit_price": 2000, "total": 2000, "price_ambiguous": True,
+    }, "english")
+    check("English asks total or each", "total" in resp.lower() and "each" in resp.lower())
+    # Confirm "no" = each
+    resp = await _route_intent(U2, {"action": "confirm_no"}, "english")
+    check("Each path: 2000 each x 4 = 8,000", "8,000" in resp)
+
+    # T45: Price ambiguity -> total path (different product)
+    print("\n--- T45: [Emeka] Price ambiguity -> total ---")
+    await _route_intent(U2, {
+        "action": "record_sale", "product": "charger", "quantity": 3, "unit": "piece",
+        "unit_price": 4500, "total": 4500, "price_ambiguous": True,
+    }, "english")
+    resp = await _route_intent(U2, {"action": "confirm_yes"}, "english")
+    check("Total path: 4,500 total", "4,500" in resp)
+    check("Total path: 1,500 each", "1,500" in resp)  # 4500/3
+
+    # -- USER 3: Alhaji Musa -- English, building materials --
+    U3 = "2349100000003"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U3,))
+    await db.commit()
+
+    # Setup: credit for "Chief Bala"
+    await _route_intent(U3, {"action": "record_credit", "customer": "Chief Bala",
+                             "amount": 50000, "note": "cement"}, "english")
+
+    # T46: Fuzzy customer match on payment -- "Chief Balla"
+    print("\n--- T46: [Alhaji Musa] Fuzzy customer match on payment ---")
+    resp = await _route_intent(U3, {
+        "action": "record_payment", "customer": "Chief Balla", "amount": 20000,
+    }, "english")
+    check("Asks if same person", "Chief Bala" in resp and "Chief Balla" in resp)
+    check("Confirmation prompt", "same person" in resp.lower() or "yes" in resp.lower())
+
+    # T47: Confirm yes -> payment applied to matched customer
+    print("\n--- T47: [Alhaji Musa] Confirm fuzzy match on payment ---")
+    resp = await _route_intent(U3, {"action": "confirm_yes"}, "english")
+    check("Payment recorded", "20,000" in resp)
+    check("Remaining shown", "30,000" in resp)  # 50k - 20k = 30k
+
+    # T48: Fuzzy match on credit -> reject (new customer)
+    print("\n--- T48: [Alhaji Musa] Reject fuzzy match -> new customer ---")
+    resp = await _route_intent(U3, {
+        "action": "record_credit", "customer": "Chief Balewa", "amount": 15000,
+        "note": "iron rod",
+    }, "english")
+    check("Fuzzy match suggested", "Chief Bala" in resp)
+    resp = await _route_intent(U3, {"action": "confirm_no"}, "english")
+    check("New customer created", "Chief Balewa" in resp and "15,000" in resp)
+    # Verify both customers exist
+    cursor = await db.execute(
+        "SELECT DISTINCT customer FROM credits WHERE phone = ? ORDER BY customer", (U3,))
+    customers = [r[0] for r in await cursor.fetchall()]
+    check("Two distinct customers", len(customers) == 2)
+
+    # -- USER 4: Sister Funke -- English tailor --
+    U4 = "2349100000004"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U4,))
+    await db.commit()
+
+    # T49: Mark credit when sale has no customer -> asks for name
+    print("\n--- T49: [Sister Funke] Mark credit -- no customer on sale ---")
+    await _route_intent(U4, {
+        "action": "record_sale", "product": "ankara", "quantity": 2, "unit": "yard",
+        "unit_price": 3500, "total": 7000,
+    }, "english")
+    resp = await _route_intent(U4, {"action": "mark_credit"}, "english")
+    check("Asks for customer name", "who" in resp.lower() or "customer" in resp.lower())
+
+    # T50: Mark credit when sale HAS a customer -> auto-marks
+    print("\n--- T50: [Sister Funke] Mark credit -- has customer ---")
+    await _route_intent(U4, {
+        "action": "record_sale", "product": "lace", "quantity": 3, "unit": "yard",
+        "unit_price": 5000, "total": 15000, "customer": "Mrs Adeyemi",
+        "is_credit": False,
+    }, "english")
+    resp = await _route_intent(U4, {"action": "mark_credit"}, "english")
+    check("Auto-marks with existing customer", "Mrs Adeyemi" in resp)
+    check("Shows product", "lace" in resp.lower())
+    check("Shows credit confirmation", "credit" in resp.lower())
+    # Verify credit record exists
+    cursor = await db.execute(
+        "SELECT amount FROM credits WHERE phone = ? AND LOWER(customer) = 'mrs adeyemi' AND settled = 0", (U4,))
+    row = await cursor.fetchone()
+    check("Credit record created", row is not None and row[0] == 15000)
+
+    # -- USER 5: Oga Segun -- Pidgin auto parts dealer --
+    U5 = "2349100000005"
+    await db.execute("INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (U5,))
+    await db.commit()
+
+    # T51: Multi-sale with 3 items, 2 missing prices
+    print("\n--- T51: [Oga Segun] Multi-sale with missing prices ---")
+    resp = await _route_intent(U5, {
+        "action": "multi_sale",
+        "items": [
+            {"product": "brake pad", "quantity": 2, "unit": "piece", "unit_price": 5000, "total": 10000},
+            {"product": "spark plug", "quantity": 4, "unit": "piece", "unit_price": 0, "total": 0},
+            {"product": "fan belt", "quantity": 1, "unit": "piece", "unit_price": 0, "total": 0},
+        ],
+    }, "pidgin")
+    check("Brake pad recorded (has price)", "brake pad" in resp.lower() and "Sold!" in resp)
+    check("Missing prices listed", "spark plug" in resp.lower() and "fan belt" in resp.lower())
+    pending = await _peek_pending(db, U5)
+    check("Pending has 2 unpriced items", pending is not None and len(pending.get("items", [])) == 2)
+
+    # T52: Set price for spark plug -> auto-completes, fan belt still pending
+    print("\n--- T52: [Oga Segun] Set price auto-completes first item ---")
+    resp = await _route_intent(U5, {
+        "action": "set_price", "product": "spark plug", "unit": "piece", "sell_price": 800,
+    }, "pidgin")
+    check("Spark plug price set", "spark plug" in resp.lower() and "800" in resp)
+    check("Spark plug auto-recorded", "Sold!" in resp)
+    check("Fan belt still pending", "fan belt" in resp.lower())
+
+    # T53: Set price for fan belt -> auto-completes, pending cleared
+    print("\n--- T53: [Oga Segun] Set price completes last item ---")
+    resp = await _route_intent(U5, {
+        "action": "set_price", "product": "fan belt", "unit": "piece", "sell_price": 2500,
+    }, "pidgin")
+    check("Fan belt price set", "fan belt" in resp.lower())
+    check("Fan belt auto-recorded", "Sold!" in resp)
+    pending = await _peek_pending(db, U5)
+    check("All pending cleared", pending is None)
+
+    # -- USER 6: Halima -- English cosmetics seller (tests STALE PENDING -- M5 fix) --
+    U6 = "2349100000006"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U6,))
+    await db.commit()
+
+    # T54: Price ambiguity triggers pending
+    print("\n--- T54: [Halima] Stale pending -- price ambiguity triggered ---")
+    resp = await _route_intent(U6, {
+        "action": "record_sale", "product": "lipstick", "quantity": 3, "unit": "piece",
+        "unit_price": 1500, "total": 1500, "price_ambiguous": True,
+    }, "english")
+    check("Price ambiguity pending saved", "total" in resp.lower() and "each" in resp.lower())
+    pending = await _peek_pending(db, U6)
+    check("Pending is price_clarification", pending is not None and pending.get("action") == "price_clarification")
+
+    # T55: Instead of confirming, user sends a completely new sale -> M5 clears stale pending
+    print("\n--- T55: [Halima] New action clears stale pending ---")
+    # Simulate what main.py does: clear pending before routing new business action
+    await _clear_pending(db, U6)  # This is what main.py does for non-confirm actions
+    resp = await _route_intent(U6, {
+        "action": "record_sale", "product": "eyeliner", "quantity": 1, "unit": "piece",
+        "unit_price": 800, "total": 800,
+    }, "english")
+    check("New sale recorded despite old pending", "Sold!" in resp and "eyeliner" in resp.lower())
+
+    # T56: Now "yes" does nothing -- no stale action fires
+    print("\n--- T56: [Halima] Yes after stale pending -> nothing ---")
+    resp = await _route_intent(U6, {"action": "confirm_yes"}, "english")
+    check("No stale action fires", "Nothing to confirm" in resp or "nothing" in resp.lower())
+
+    # -- USER 7: Ada -- English hair salon --
+    U7 = "2349100000007"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U7,))
+    await db.commit()
+
+    # T57: Credit ambiguity -> confirm no -> credit path
+    print("\n--- T57: [Ada] Credit ambiguity -> credit path ---")
+    resp = await _route_intent(U7, {
+        "action": "record_sale", "product": "braiding", "quantity": 1, "unit": "piece",
+        "unit_price": 8000, "total": 8000, "customer": "Sisi Tayo",
+        "is_credit": False, "credit_ambiguous": True,
+    }, "english")
+    check("Asks cash or credit", "cash" in resp.lower() and "credit" in resp.lower())
+    resp = await _route_intent(U7, {"action": "confirm_no"}, "english")
+    check("Credit path records sale", "Sold!" in resp or "credit" in resp.lower())
+    # Verify credit was created
+    cursor = await db.execute(
+        "SELECT amount FROM credits WHERE phone = ? AND LOWER(customer) = 'sisi tayo' AND settled = 0", (U7,))
+    row = await cursor.fetchone()
+    check("Credit entry created for Sisi Tayo", row is not None and row[0] == 8000)
+
+    # T58: Voice credit -> name correction duplicate detection
+    # Use a unique customer name that won't fuzzy match existing "Sisi Tayo"
+    print("\n--- T58: [Ada] Voice name correction ---")
+    # Debug: check state before
+    resp = await _route_intent(U7, {
+        "action": "record_credit", "customer": "Mama Kike", "amount": 5000,
+        "note": "relaxer", "_is_voice": True,
+    }, "english")
+    check("Voice credit recorded", "Mama Kike" in resp and "5,000" in resp)
+    # Now user corrects with the right name and same amount -> should rename, not duplicate
+    resp = await _route_intent(U7, {
+        "action": "record_credit", "customer": "Mama Kiki", "amount": 5000,
+        "note": "relaxer",
+    }, "english")
+    check("Name correction detected", "Changed" in resp or "change" in resp.lower())
+    cursor = await db.execute(
+        "SELECT customer, amount FROM credits WHERE phone = ? AND LOWER(customer) = 'mama kiki' AND settled = 0", (U7,))
+    rows = await cursor.fetchall()
+    check("Renamed to Mama Kiki", len(rows) >= 1)
+
+    # -- USER 8: Brother Chidi -- English wholesale --
+    U8 = "2349100000008"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U8,))
+    await db.commit()
+
+    # Setup: credit for "Alhaji Garba"
+    await _route_intent(U8, {"action": "record_credit", "customer": "Alhaji Garba",
+                             "amount": 80000, "note": "cement bulk"}, "english")
+
+    # T59: Payment+credit combo with fuzzy customer "Alhaji Garbar"
+    print("\n--- T59: [Brother Chidi] Payment+credit combo -> fuzzy match ---")
+    resp = await _route_intent(U8, {
+        "action": "payment_and_credit", "customer": "Alhaji Garbar",
+        "payment_amount": 50000, "credit_amount": 22000, "credit_note": "more cement",
+    }, "english")
+    check("Fuzzy match triggers confirmation", "Alhaji Garba" in resp and "Alhaji Garbar" in resp)
+
+    # T60: Confirm yes -> both payment and credit processed
+    print("\n--- T60: [Brother Chidi] Confirm combo ---")
+    resp = await _route_intent(U8, {"action": "confirm_yes"}, "english")
+    check("Payment processed", "50,000" in resp)
+    check("Credit processed", "22,000" in resp)
+    check("Customer name used", "Alhaji Garba" in resp)
+
+    # T61: Delete data -> cancel
+    print("\n--- T61: [Brother Chidi] Delete data -> cancel ---")
+    resp = await _route_intent(U8, {"action": "delete_data"}, "english")
+    check("Delete asks confirmation", "sure" in resp.lower() or "delete" in resp.lower())
+    resp = await _route_intent(U8, {"action": "confirm_no"}, "english")
+    check("Delete cancelled", "safe" in resp.lower() or "cancel" in resp.lower() or "no problem" in resp.lower())
+    # Verify data still exists
+    cursor = await db.execute("SELECT COUNT(*) FROM credits WHERE phone = ?", (U8,))
+    check("Data preserved after cancel", (await cursor.fetchone())[0] > 0)
+
+    # -- USER 9: Iya Sade -- Pidgin food vendor (sequential clarifications) --
+    U9 = "2349100000009"
+    await db.execute("INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (U9,))
+    await db.commit()
+
+    # Setup: credit for "Mama Olu"
+    await _route_intent(U9, {"action": "record_credit", "customer": "Mama Olu",
+                             "amount": 3000, "note": "rice"}, "pidgin")
+
+    # T62: Fuzzy match on payment -> reject -> original name used
+    print("\n--- T62: [Iya Sade] Reject fuzzy match on payment ---")
+    resp = await _route_intent(U9, {
+        "action": "record_payment", "customer": "Mama Oluchi", "amount": 2000,
+    }, "pidgin")
+    check("Fuzzy match suggested", "Mama Olu" in resp)
+    resp = await _route_intent(U9, {"action": "confirm_no"}, "pidgin")
+    # "Mama Oluchi" has no credits -> customer not found
+    check("Original name used but not found", "Mama Oluchi" in resp.lower() or "can't find" in resp.lower() or "no see" in resp.lower())
+
+    # T63: Sequential clarifications -- price ambiguity then credit ambiguity back to back
+    print("\n--- T63: [Iya Sade] Back-to-back clarifications ---")
+    # First: price ambiguity
+    await _route_intent(U9, {
+        "action": "record_sale", "product": "plantain", "quantity": 10, "unit": "bunch",
+        "unit_price": 500, "total": 500, "price_ambiguous": True,
+    }, "pidgin")
+    resp = await _route_intent(U9, {"action": "confirm_yes"}, "pidgin")
+    check("First clarification resolves", "Sold!" in resp)
+    # Second: credit ambiguity (immediately after)
+    resp = await _route_intent(U9, {
+        "action": "record_sale", "product": "yam", "quantity": 3, "unit": "tuber",
+        "unit_price": 2000, "total": 6000, "customer": "Mama Titi",
+        "is_credit": False, "credit_ambiguous": True,
+    }, "pidgin")
+    check("Second clarification triggers", "cash" in resp.lower() and "credit" in resp.lower())
+    resp = await _route_intent(U9, {"action": "confirm_yes"}, "pidgin")
+    check("Second clarification resolves (cash)", "Sold!" in resp)
+
+    # -- USER 10: Mama Ngozi -- English provision store (stale pending on customer match) --
+    U10 = "2349100000010"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U10,))
+    await db.commit()
+
+    # Setup: credit for "Aunty Grace"
+    await _route_intent(U10, {"action": "record_credit", "customer": "Aunty Grace",
+                              "amount": 5000, "note": "provisions"}, "english")
+
+    # T64: Customer match triggers pending
+    print("\n--- T64: [Mama Ngozi] Customer match -> stale pending ---")
+    resp = await _route_intent(U10, {
+        "action": "record_payment", "customer": "Aunty Gracey", "amount": 3000,
+    }, "english")
+    check("Customer match asks confirmation", "Aunty Grace" in resp)
+
+    # T65: User ignores and sends new action -> stale pending cleared (simulating M5)
+    print("\n--- T65: [Mama Ngozi] New action clears customer match pending ---")
+    await _clear_pending(db, U10)  # M5: main.py clears pending for non-confirm actions
+    resp = await _route_intent(U10, {
+        "action": "record_expense", "description": "transport", "amount": 500, "category": "transport",
+    }, "english")
+    check("New expense recorded", "500" in resp and "transport" in resp.lower())
+
+    # T66: "yes" after stale -> nothing to confirm
+    print("\n--- T66: [Mama Ngozi] Confirm after stale -> nothing ---")
+    resp = await _route_intent(U10, {"action": "confirm_yes"}, "english")
+    check("Nothing to confirm", "Nothing to confirm" in resp or "nothing" in resp.lower())
+    # The original payment was NOT processed (pending was cleared)
+    cursor = await db.execute("SELECT COUNT(*) FROM payments WHERE phone = ?", (U10,))
+    check("Original payment not processed", (await cursor.fetchone())[0] == 0)
+
+    # T67: Customer statement with fuzzy match -> confirm yes
+    print("\n--- T67: [Mama Ngozi] Customer statement fuzzy match ---")
+    resp = await _route_intent(U10, {
+        "action": "customer_statement", "customer": "Aunty Gracey",
+    }, "english")
+    check("Statement fuzzy match asks", "Aunty Grace" in resp)
+    resp = await _route_intent(U10, {"action": "confirm_yes"}, "english")
+    check("Statement link generated", "receipt" in resp.lower() or "test.example.com" in resp)
+
+    # T68: Mark credit with fuzzy customer match
+    print("\n--- T68: [Mama Ngozi] Mark credit with fuzzy customer ---")
+    # Record a cash sale first
+    await _route_intent(U10, {
+        "action": "record_sale", "product": "soap", "quantity": 5, "unit": "bar",
+        "unit_price": 200, "total": 1000, "customer": "Aunty Gracey",
+        "is_credit": False,
+    }, "english")
+    resp = await _route_intent(U10, {"action": "mark_credit"}, "english")
+    # "Aunty Gracey" fuzzy matches "Aunty Grace" -> asks for confirmation
+    check("Mark credit fuzzy match asks", "Aunty Grace" in resp)
+    resp = await _route_intent(U10, {"action": "confirm_yes"}, "english")
+    check("Mark credit confirmed with matched customer",
+          "credit" in resp.lower() and "soap" in resp.lower())
 
     # === CLEANUP ===
     await close_db()
