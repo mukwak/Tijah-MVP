@@ -45,7 +45,7 @@ Handler (business logic)
 SQLite (local) / Neon Postgres (hosted)
      |
      v
-Response (text + optional TTS via OpenAI gpt-4o-mini-tts)
+Response (text + optional TTS via edge-tts)
      |
      v
 WhatsApp reply (text message + voice note if user sent voice)
@@ -56,17 +56,23 @@ WhatsApp reply (text message + voice note if user sent voice)
 | Feature | Example command |
 |---------|----------------|
 | Record sales | "I sold 3 bags of rice for 5000 each" |
+| Batch sales | "I sold 20 coke, 15 biscuit, 10 soap" |
 | Buy stock | "I bought 10 bags of cement at 3000" |
 | Credit book | "Mama Joy owes me 5000" |
 | Track payments | "Mama Joy paid 2000" |
-| Expenses | "I spent 500 on transport" |
+| Retroactive credit | "That was on credit" (marks last sale) |
+| Expenses | "I spent 500 on transport" / "3k on flour and 1.5k on oil" |
 | Set prices | "Rice is 5000 per bag" |
-| Daily summary | "How did my shop do today?" |
+| Daily/weekly/monthly summary | "How did my shop do today/this week/this month?" |
 | Sales list | "What did I sell this week?" |
+| Payment history | "How much did people pay me this week?" |
 | Stock check | "How much rice do I have?" |
 | Undo / edit | "Cancel that" / "Undo the rice sale" / "It was 3 not 5" |
+| Backdate | "I sold rice yesterday" / "I sold cement on Saturday" |
+| Merge products | "Coke and coca cola are the same thing" |
 | Shop report | "My report" (generates a shareable web link) |
 | Customer receipt | "Receipt for Mama Joy" (shareable proof of debt) |
+| Privacy / delete data | "My privacy" / "Delete my data" |
 | Language | Understands English and Nigerian Pidgin |
 
 ## Project Structure
@@ -78,13 +84,13 @@ app/
   preclassifier.py - Fast regex pre-classifier (skips LLM for simple intents)
   handlers.py     - Business logic for all actions
   responses.py    - Bilingual response templates (English + Pidgin)
-  voice.py        - OpenAI Whisper STT + TTS
+  voice.py        - OpenAI Whisper STT + edge-tts TTS
   whatsapp.py     - WhatsApp Cloud API client
   database.py     - DB layer (SQLite locally, Postgres in production)
   report.py       - Shareable HTML report pages
   config.py       - Environment variable loading
 test_local.py     - CLI simulator for local testing
-test_smoke.py     - End-to-end smoke test (46 tests)
+test_smoke.py     - End-to-end smoke tests (409 tests)
 render.yaml       - Render deployment blueprint
 ```
 
@@ -97,7 +103,7 @@ render.yaml       - Render deployment blueprint
 | `META_VERIFY_TOKEN` | Yes | Webhook verification token |
 | `META_APP_SECRET` | Yes | App secret for signature verification |
 | `GOOGLE_AI_API_KEY` | Yes | Google AI API key (Gemini Flash) |
-| `OPENAI_API_KEY` | Yes | OpenAI key (Whisper STT + TTS) |
+| `OPENAI_API_KEY` | Yes | OpenAI key (Whisper STT) |
 | `DATABASE_URL` | Production | Neon Postgres connection string (omit for local SQLite) |
 | `BASE_URL` | Production | Public URL of deployed app |
 | `ADMIN_TOKEN` | Optional | Enables admin dashboard at `/admin/{token}` |
@@ -116,7 +122,7 @@ The app is configured for Render free tier via `render.yaml`. See [ALPHA_SETUP.m
 ## Testing
 
 ```bash
-# Smoke test (46 tests, no API keys needed)
+# Smoke tests (409 tests, no API keys needed)
 python test_smoke.py
 
 # CLI simulator (text only, uses local SQLite)
