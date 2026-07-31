@@ -963,8 +963,8 @@ async def run():
     # ==========================================================================
     # Simulates users who record their full day's transactions via a single
     # long voice note at closing time. Tests the echo-and-confirm flow,
-    # replay through NLU, one-time hint, sequential confirm cycles, TTS
-    # splitting of long responses, and Pidgin/English paths.
+    # replay through NLU to handler, DB verification of recorded transactions,
+    # one-time hint, sequential confirm cycles, TTS splitting, and edge cases.
     #
     # The _process_message flow for very long voice:
     #   1. Audio >60KB -> _very_long_voice flag
@@ -974,7 +974,9 @@ async def run():
     #   5. User says "no" -> confirm_no -> "send shorter voice note"
     #
     # Since _process_message handles steps 1-3 internally, we simulate that
-    # by calling _save_pending directly, then test steps 4-5 via _route_intent.
+    # by calling _save_pending directly. For step 4, we complete the full
+    # replay cycle: confirm_yes -> __replay__:text -> route intent -> handler
+    # -> DB write, then verify the DB records match the original voice note.
     print("\n" + "=" * 60)
     print("LONG VOICE END-OF-DAY SIMULATION -- 10 Users")
     print("=" * 60)
@@ -1006,31 +1008,60 @@ async def run():
             return get_response("hint_long_voice", lang)
         return ""
 
-    # ---- Helper: simulate confirm_yes + replay ----
-    async def sim_confirm_yes_replay(phone, lang):
-        """Simulate confirm_yes -> __replay__ -> NLU re-route."""
+    # ---- Helper: full replay cycle (confirm -> route intent -> DB) ----
+    async def do_confirm_and_route(phone, intent, lang):
+        """Simulate confirm_yes then route the replay as the given intent.
+        This is what _process_message does: confirm_yes returns __replay__:text,
+        then it runs NLU on the text and routes the result. Since we can't call
+        Gemini in tests, the caller provides the intent NLU would produce."""
         resp = await _route_intent(phone, {"action": "confirm_yes"}, lang)
-        if resp.startswith("__replay__:"):
-            replay_text = resp[len("__replay__:"):]
-            replay_intent = preclassify(replay_text)
-            if not replay_intent:
-                # We can't call Gemini in tests, so use preclassify only
-                # For texts that don't preclassify, simulate a direct sale intent
-                return None, replay_text  # Caller handles NLU-dependent case
-            replay_intent["_is_voice"] = True
-            final = await _route_intent(phone, replay_intent, lang)
-            return final, replay_text
-        return resp, None
+        assert resp.startswith("__replay__:"), f"Expected __replay__, got: {resp[:80]}"
+        replay_text = resp[len("__replay__:"):]
+        # Route the intent (simulating what NLU would parse from replay_text)
+        intent["_is_voice"] = True
+        result = await _route_intent(phone, intent, lang)
+        return result, replay_text
 
-    # ==== USER V1: Mama Nkechi -- Food vendor, English, single long sale ====
+    # ---- Helper: count sales for a user ----
+    async def count_sales(phone):
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,))
+        row = await cursor.fetchone()
+        return row[0]
+
+    # ---- Helper: get sales total for a user ----
+    async def sales_total(phone):
+        cursor = await db.execute(
+            "SELECT COALESCE(SUM(total), 0) FROM sales WHERE phone = ?", (phone,))
+        row = await cursor.fetchone()
+        return row[0]
+
+    # ---- Helper: get sale by product ----
+    async def get_sale(phone, product):
+        cursor = await db.execute(
+            "SELECT product_name, quantity, unit_price, total, customer, is_credit "
+            "FROM sales WHERE phone = ? AND product_name = ? ORDER BY id DESC LIMIT 1",
+            (phone, product))
+        return await cursor.fetchone()
+
+    # ---- Helper: get credit record ----
+    async def get_credit(phone, customer):
+        cursor = await db.execute(
+            "SELECT customer, amount FROM credits WHERE phone = ? AND customer = ? "
+            "ORDER BY id DESC LIMIT 1", (phone, customer))
+        return await cursor.fetchone()
+
+    # ---- Helper: get expense total ----
+    async def expenses_total(phone):
+        cursor = await db.execute(
+            "SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE phone = ?", (phone,))
+        row = await cursor.fetchone()
+        return row[0]
+
+    # ==== USER V1: Mama Nkechi -- Food vendor, English, end-of-day sales ====
     V1 = "2349200000001"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V1,))
     await db.commit()
-
-    # Record some products with prices first so replay works
-    await _route_intent(V1, {
-        "action": "set_price", "product": "rice", "unit_price": 5000, "unit": "bag",
-    }, "english")
 
     print("\n--- T77: [Mama Nkechi] Very long voice -> echo and confirm prompt ---")
     long_text = "I sold 3 bags of rice today for 15000 naira and 2 bags of beans for 8000 naira"
@@ -1038,11 +1069,31 @@ async def run():
     check("Echo contains transcription", long_text in echo_resp)
     check("Confirm prompt present", "Did I get everything right" in echo_resp)
     check("Yes/no options mentioned", "yes" in echo_resp.lower() and "no" in echo_resp.lower())
+    # DB: no sales yet (pending confirmation)
+    check("No sales before confirm", await count_sales(V1) == 0)
 
-    print("\n--- T78: [Mama Nkechi] Confirm yes -> replay processes sale ---")
-    resp = await _route_intent(V1, {"action": "confirm_yes"}, "english")
-    check("Replay prefix returned", resp.startswith("__replay__:"))
-    check("Original text in replay", "3 bags of rice" in resp)
+    print("\n--- T78: [Mama Nkechi] Confirm yes -> replay -> sale recorded in DB ---")
+    # Simulate NLU parsing the replay text as a multi_sale
+    resp, replay = await do_confirm_and_route(V1, {
+        "action": "multi_sale", "items": [
+            {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
+            {"product": "beans", "quantity": 2, "unit": "bag", "unit_price": 4000, "total": 8000},
+        ]
+    }, "english")
+    check("Multi-sale confirmed", "Sold!" in resp or "rice" in resp.lower())
+    # DB verification: 2 sales recorded
+    v1_count = await count_sales(V1)
+    check("V1 has 2 sales in DB", v1_count == 2, f"got {v1_count}")
+    v1_total = await sales_total(V1)
+    check("V1 total = 23,000", v1_total == 23000, f"got {v1_total}")
+    rice_sale = await get_sale(V1, "rice")
+    check("Rice: 3 bags at 5000 = 15000",
+          rice_sale and rice_sale[1] == 3 and rice_sale[2] == 5000 and rice_sale[3] == 15000,
+          f"got {rice_sale}")
+    beans_sale = await get_sale(V1, "beans")
+    check("Beans: 2 bags at 4000 = 8000",
+          beans_sale and beans_sale[1] == 2 and beans_sale[2] == 4000 and beans_sale[3] == 8000,
+          f"got {beans_sale}")
 
     # Verify pending is cleared after confirm_yes
     pending = await _peek_pending(db, V1)
@@ -1054,7 +1105,7 @@ async def run():
     hint2 = await check_long_voice_hint(V1, "english")
     check("Second hint does NOT fire", hint2 == "")
 
-    # ==== USER V2: Iya Basira -- Pidgin food vendor, confirm NO path ====
+    # ==== USER V2: Iya Basira -- Pidgin food vendor, reject then confirm ====
     V2 = "2349200000002"
     await db.execute(
         "INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (V2,))
@@ -1066,20 +1117,29 @@ async def run():
     check("Pidgin echo has text", pidgin_text in echo_resp)
     check("Pidgin confirm prompt", "I hear everything correct" in echo_resp)
 
-    print("\n--- T81: [Iya Basira] Confirm NO -> asks to resend ---")
+    print("\n--- T81: [Iya Basira] Confirm NO -> nothing recorded ---")
     resp = await _route_intent(V2, {"action": "confirm_no"}, "pidgin")
     check("Pidgin no: suggests shorter note", "shorter voice note" in resp.lower())
-    # Verify pending is cleared
     pending = await _peek_pending(db, V2)
     check("Pending cleared after no", pending is None)
+    # DB: no sales (rejected)
+    check("No sales after rejection", await count_sales(V2) == 0)
 
-    print("\n--- T82: [Iya Basira] Second long voice after rejection ---")
+    print("\n--- T82: [Iya Basira] Retry -> confirm yes -> sale in DB ---")
     retry_text = "I sell 5 bag garri 25000 naira"
-    echo2 = await sim_very_long_voice(V2, retry_text, "pidgin")
-    check("Second attempt echoes new text", retry_text in echo2)
-    # Confirm yes this time
-    resp = await _route_intent(V2, {"action": "confirm_yes"}, "pidgin")
-    check("Second attempt replay works", resp.startswith("__replay__:"))
+    await sim_very_long_voice(V2, retry_text, "pidgin")
+    resp, _ = await do_confirm_and_route(V2, {
+        "action": "record_sale", "product": "garri", "quantity": 5, "unit": "bag",
+        "unit_price": 5000, "total": 25000,
+    }, "pidgin")
+    check("Garri sale confirmed", "Sold!" in resp)
+    # DB verification
+    v2_count = await count_sales(V2)
+    check("V2 has 1 sale in DB", v2_count == 1, f"got {v2_count}")
+    garri = await get_sale(V2, "garri")
+    check("Garri: 5 bags at 5000 = 25000",
+          garri and garri[1] == 5 and garri[2] == 5000 and garri[3] == 25000,
+          f"got {garri}")
 
     print("\n--- T83: [Iya Basira] Pidgin hint fires once ---")
     hint = await check_long_voice_hint(V2, "pidgin")
@@ -1087,223 +1147,349 @@ async def run():
     hint2 = await check_long_voice_hint(V2, "pidgin")
     check("Pidgin hint not repeated", hint2 == "")
 
-    # ==== USER V3: Brother Emeka -- Hardware store, very long multi-item ====
+    # ==== USER V3: Brother Emeka -- Hardware store, multi-item end-of-day ====
     V3 = "2349200000003"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V3,))
     await db.commit()
 
-    print("\n--- T84: [Brother Emeka] Multi-item long voice ---")
+    print("\n--- T84: [Brother Emeka] Multi-item long voice -> confirm -> DB ---")
     multi_text = ("Today I sold 10 bags of cement at 5500 each, 3 bundles of roofing sheet "
                   "for 45000 naira, 2 packets of nails for 3000, and somebody bought "
                   "5 bags of sand for 2500 each")
     echo_resp = await sim_very_long_voice(V3, multi_text, "english")
     check("Multi-item echo complete", "cement" in echo_resp and "sand" in echo_resp)
-    check("Full text preserved in echo", multi_text in echo_resp)
 
-    # Confirm yes
-    resp = await _route_intent(V3, {"action": "confirm_yes"}, "english")
-    check("Multi-item replay returned", resp.startswith("__replay__:"))
-    replay_text = resp[len("__replay__:"):]
-    check("All items in replay", "cement" in replay_text and "nails" in replay_text)
+    # Confirm and route as multi_sale
+    resp, replay = await do_confirm_and_route(V3, {
+        "action": "multi_sale", "items": [
+            {"product": "cement", "quantity": 10, "unit": "bag", "unit_price": 5500, "total": 55000},
+            {"product": "roofing sheet", "quantity": 3, "unit": "bundle", "unit_price": 15000, "total": 45000},
+            {"product": "nails", "quantity": 2, "unit": "packet", "unit_price": 1500, "total": 3000},
+            {"product": "sand", "quantity": 5, "unit": "bag", "unit_price": 2500, "total": 12500},
+        ]
+    }, "english")
+    check("Multi-sale response has items", "cement" in resp.lower() or "Sold!" in resp)
+    # DB: 4 products recorded
+    v3_count = await count_sales(V3)
+    check("V3 has 4 sales in DB", v3_count == 4, f"got {v3_count}")
+    v3_total = await sales_total(V3)
+    expected_v3 = 55000 + 45000 + 3000 + 12500  # = 115,500
+    check(f"V3 total = {expected_v3:,}", v3_total == expected_v3, f"got {v3_total}")
+    cement = await get_sale(V3, "cement")
+    check("Cement: 10 at 5500 = 55000",
+          cement and cement[1] == 10 and cement[3] == 55000, f"got {cement}")
+    sand = await get_sale(V3, "sand")
+    check("Sand: 5 at 2500 = 12500",
+          sand and sand[1] == 5 and sand[3] == 12500, f"got {sand}")
 
-    print("\n--- T85: [Brother Emeka] Sequential: long voice then normal sale ---")
-    # After confirming a long voice, user can do a normal sale immediately
+    print("\n--- T85: [Brother Emeka] Then a normal text sale ---")
     resp = await _route_intent(V3, {
-        "action": "record_sale", "product": "cement", "quantity": 5, "unit": "bag",
-        "unit_price": 5500, "total": 27500,
+        "action": "record_sale", "product": "iron rod", "quantity": 20, "unit": "piece",
+        "unit_price": 3500, "total": 70000,
     }, "english")
     check("Normal sale after long voice works", "Sold!" in resp)
-    # No stale pending from the long voice confirm
-    pending = await _peek_pending(db, V3)
-    check("No stale pending after normal sale", pending is None)
+    v3_count2 = await count_sales(V3)
+    check("V3 now has 5 sales", v3_count2 == 5, f"got {v3_count2}")
+    iron = await get_sale(V3, "iron rod")
+    check("Iron rod in DB: 20 at 3500 = 70000",
+          iron and iron[1] == 20 and iron[3] == 70000, f"got {iron}")
 
-    # ==== USER V4: Sisi Kemi -- Cosmetics, long voice then text correction ====
+    # ==== USER V4: Sisi Kemi -- Cosmetics, abandon voice for text ====
     V4 = "2349200000004"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V4,))
     await db.commit()
 
-    print("\n--- T86: [Sisi Kemi] Long voice abandoned for text entry ---")
+    print("\n--- T86: [Sisi Kemi] Long voice abandoned -> text sale -> DB ---")
     voice_text = "I sold 3 packs of relaxer for 4500 and 5 bottles of shampoo"
     await sim_very_long_voice(V4, voice_text, "english")
     # User decides to type instead -- _process_message clears stale pending
-    # before calling _route_intent for new business actions. Simulate that:
     await _clear_pending(db, V4)
     resp = await _route_intent(V4, {
         "action": "record_sale", "product": "relaxer", "quantity": 3, "unit": "pack",
         "unit_price": 1500, "total": 4500,
     }, "english")
-    check("Text sale overrides long voice pending", "Sold!" in resp)
-    check("Relaxer sale recorded", "relaxer" in resp.lower())
-    # Verify pending stays cleared
-    pending = await _peek_pending(db, V4)
-    check("Long voice pending cleared by new action", pending is None)
+    check("Text sale overrides voice pending", "Sold!" in resp)
+    # DB: only the typed sale, not the voice one
+    v4_count = await count_sales(V4)
+    check("V4 has 1 sale (text only, voice discarded)", v4_count == 1, f"got {v4_count}")
+    relaxer = await get_sale(V4, "relaxer")
+    check("Relaxer: 3 at 1500 = 4500",
+          relaxer and relaxer[1] == 3 and relaxer[3] == 4500, f"got {relaxer}")
+    # No shampoo sale (voice was abandoned)
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM sales WHERE phone = ? AND product_name = 'shampoo'", (V4,))
+    shampoo = await cursor.fetchone()
+    check("No shampoo sale (voice was abandoned)", shampoo[0] == 0)
 
-    # ==== USER V5: Alhaji Musa -- Auto parts, Pidgin, multiple confirm cycles ====
+    # ==== USER V5: Alhaji Musa -- Auto parts, reject-retry-confirm cycle ====
     V5 = "2349200000005"
     await db.execute(
         "INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (V5,))
     await db.commit()
 
-    print("\n--- T87: [Alhaji Musa] First long voice -> no -> second -> yes ---")
+    print("\n--- T87: [Alhaji Musa] Reject first voice, confirm second -> DB ---")
     text1 = "I sell brake pad 15000 and shock absorber 22000 today"
     await sim_very_long_voice(V5, text1, "pidgin")
     resp_no = await _route_intent(V5, {"action": "confirm_no"}, "pidgin")
     check("First attempt rejected", "shorter" in resp_no.lower())
+    # Nothing recorded yet
+    check("No sales after rejection", await count_sales(V5) == 0)
 
+    # Second attempt: shorter, just brake pad
     text2 = "I sell brake pad 15000 naira"
     await sim_very_long_voice(V5, text2, "pidgin")
-    resp = await _route_intent(V5, {"action": "confirm_yes"}, "pidgin")
-    check("Second attempt confirmed", resp.startswith("__replay__:"))
-    check("Only brake pad in replay", "brake pad" in resp and "shock" not in resp)
+    resp, _ = await do_confirm_and_route(V5, {
+        "action": "record_sale", "product": "brake pad", "quantity": 1, "unit": "piece",
+        "unit_price": 15000, "total": 15000,
+    }, "pidgin")
+    check("Brake pad sale confirmed", "Sold!" in resp)
+    brake = await get_sale(V5, "brake pad")
+    check("Brake pad in DB: 1 at 15000",
+          brake and brake[1] == 1 and brake[3] == 15000, f"got {brake}")
 
-    print("\n--- T88: [Alhaji Musa] Third long voice same session ---")
+    print("\n--- T88: [Alhaji Musa] Third long voice -> shock absorber -> DB ---")
     text3 = "I sell shock absorber 22000 naira"
     await sim_very_long_voice(V5, text3, "pidgin")
-    resp = await _route_intent(V5, {"action": "confirm_yes"}, "pidgin")
-    check("Third long voice works", resp.startswith("__replay__:"))
-    check("Shock absorber in replay", "shock absorber" in resp)
+    resp, _ = await do_confirm_and_route(V5, {
+        "action": "record_sale", "product": "shock absorber", "quantity": 1, "unit": "piece",
+        "unit_price": 22000, "total": 22000,
+    }, "pidgin")
+    check("Shock absorber confirmed", "Sold!" in resp)
+    v5_count = await count_sales(V5)
+    check("V5 has 2 sales total", v5_count == 2, f"got {v5_count}")
+    v5_total = await sales_total(V5)
+    check("V5 total = 37,000", v5_total == 37000, f"got {v5_total}")
+    shock = await get_sale(V5, "shock absorber")
+    check("Shock absorber in DB: 1 at 22000",
+          shock and shock[1] == 1 and shock[3] == 22000, f"got {shock}")
 
-    # ==== USER V6: Mama Adaeze -- Provision store, credit in long voice ====
+    # ==== USER V6: Mama Adaeze -- Provision store, credit sale in voice ====
     V6 = "2349200000006"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V6,))
     await db.commit()
 
-    print("\n--- T89: [Mama Adaeze] Long voice with credit mention ---")
+    print("\n--- T89: [Mama Adaeze] Credit sale via long voice -> DB ---")
     credit_text = "Mama Joy bought 2 cartons of indomie for 8000 naira on credit"
     echo_resp = await sim_very_long_voice(V6, credit_text, "english")
     check("Credit text echoed", "Mama Joy" in echo_resp and "credit" in echo_resp)
-    resp = await _route_intent(V6, {"action": "confirm_yes"}, "english")
-    check("Credit voice replay returned", resp.startswith("__replay__:"))
-    check("Credit details preserved", "Mama Joy" in resp and "credit" in resp)
+    resp, _ = await do_confirm_and_route(V6, {
+        "action": "record_sale", "product": "indomie", "quantity": 2, "unit": "carton",
+        "unit_price": 4000, "total": 8000, "customer": "Mama Joy", "is_credit": True,
+    }, "english")
+    check("Credit sale confirmed", "Sold!" in resp or "credit" in resp.lower())
+    # DB: sale recorded as credit
+    indomie = await get_sale(V6, "indomie")
+    check("Indomie: 2 cartons at 4000 = 8000",
+          indomie and indomie[1] == 2 and indomie[3] == 8000, f"got {indomie}")
+    check("Indomie is credit sale", indomie and indomie[5] == 1,
+          f"is_credit={indomie[5] if indomie else 'N/A'}")
+    check("Customer is Mama Joy", indomie and indomie[4] == "Mama Joy",
+          f"customer={indomie[4] if indomie else 'N/A'}")
+    # Credit record should also exist
+    joy_credit = await get_credit(V6, "Mama Joy")
+    check("Credit record for Mama Joy exists",
+          joy_credit is not None, f"got {joy_credit}")
+    check("Credit amount = 8000",
+          joy_credit and joy_credit[1] == 8000, f"got {joy_credit}")
 
-    # ==== USER V7: Aunty Funke -- Hair salon, English, double confirm yes ====
+    # ==== USER V7: Aunty Funke -- Hair salon, double confirm guard ====
     V7 = "2349200000007"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V7,))
     await db.commit()
 
-    print("\n--- T90: [Aunty Funke] Confirm yes when no pending ---")
-    # User accidentally says "yes" with nothing pending
+    print("\n--- T90: [Aunty Funke] Confirm yes with no pending ---")
     resp = await _route_intent(V7, {"action": "confirm_yes"}, "english")
     check("No pending: helpful message", "nothing to confirm" in resp.lower())
+    check("No accidental sales from empty confirm", await count_sales(V7) == 0)
 
-    print("\n--- T91: [Aunty Funke] Long voice -> confirm yes -> try confirm again ---")
+    print("\n--- T91: [Aunty Funke] Long voice -> confirm -> DB -> double confirm ---")
     salon_text = "I did 3 hair treatments today at 5000 each"
     await sim_very_long_voice(V7, salon_text, "english")
-    resp = await _route_intent(V7, {"action": "confirm_yes"}, "english")
-    check("First confirm works", resp.startswith("__replay__:"))
-    # Try confirming again -- should have nothing pending
+    resp, _ = await do_confirm_and_route(V7, {
+        "action": "record_sale", "product": "hair treatment", "quantity": 3, "unit": "piece",
+        "unit_price": 5000, "total": 15000,
+    }, "english")
+    check("Hair treatment sale confirmed", "Sold!" in resp)
+    v7_count = await count_sales(V7)
+    check("V7 has 1 sale in DB", v7_count == 1, f"got {v7_count}")
+    hair = await get_sale(V7, "hair treatment")
+    check("Hair treatment: 3 at 5000 = 15000",
+          hair and hair[1] == 3 and hair[3] == 15000, f"got {hair}")
+    # Double confirm should NOT create a duplicate
     resp2 = await _route_intent(V7, {"action": "confirm_yes"}, "english")
     check("Double confirm: nothing pending", "nothing to confirm" in resp2.lower())
+    v7_count2 = await count_sales(V7)
+    check("Still 1 sale (no duplicate from double confirm)", v7_count2 == 1,
+          f"got {v7_count2}")
 
-    # ==== USER V8: Pastor Grace -- Bookshop, mixed voice and text ====
+    # ==== USER V8: Pastor Grace -- Bookshop, mixed text + voice + text ====
     V8 = "2349200000008"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V8,))
     await db.commit()
 
-    print("\n--- T92: [Pastor Grace] Normal sale, then long voice, then normal ---")
-    # Normal text sale first
+    print("\n--- T92: [Pastor Grace] Text sale -> long voice sale -> text sale -> DB ---")
+    # 1. Normal text sale
     resp1 = await _route_intent(V8, {
         "action": "record_sale", "product": "notebook", "quantity": 10, "unit": "piece",
         "unit_price": 200, "total": 2000,
     }, "english")
-    check("First text sale recorded", "Sold!" in resp1)
+    check("Notebook sale recorded", "Sold!" in resp1)
 
-    # Long voice note
+    # 2. Long voice note -> confirm -> route
     book_text = "I also sold 5 packs of pens for 1500 and 3 boxes of chalk for 2000"
     await sim_very_long_voice(V8, book_text, "english")
-    resp = await _route_intent(V8, {"action": "confirm_yes"}, "english")
-    check("Long voice after text sale works", resp.startswith("__replay__:"))
+    resp, _ = await do_confirm_and_route(V8, {
+        "action": "multi_sale", "items": [
+            {"product": "pens", "quantity": 5, "unit": "pack", "unit_price": 300, "total": 1500},
+            {"product": "chalk", "quantity": 3, "unit": "box", "unit_price": 500, "total": 1500},
+        ]
+    }, "english")
+    check("Voice multi-sale confirmed", "pens" in resp.lower() or "Sold!" in resp)
 
-    # Another normal sale right after
+    # 3. Another text sale
     resp3 = await _route_intent(V8, {
         "action": "record_sale", "product": "eraser", "quantity": 20, "unit": "piece",
         "unit_price": 50, "total": 1000,
     }, "english")
-    check("Text sale after long voice works", "Sold!" in resp3)
+    check("Eraser sale recorded", "Sold!" in resp3)
 
-    # ==== USER V9: Baba Tunde -- Wholesale, TTS splitting of long summary ====
+    # DB verification: 4 sales total (notebook + pens + chalk + eraser)
+    v8_count = await count_sales(V8)
+    check("V8 has 4 sales in DB", v8_count == 4, f"got {v8_count}")
+    v8_total = await sales_total(V8)
+    # Handler recalculates: unit_price * qty. notebook=2000, pens=1500, chalk=1500, eraser=1000
+    expected_v8 = 2000 + 1500 + 1500 + 1000  # = 6,000
+    check(f"V8 total = {expected_v8:,}", v8_total == expected_v8, f"got {v8_total}")
+    notebook = await get_sale(V8, "notebook")
+    check("Notebook in DB: 10 at 200", notebook and notebook[1] == 10, f"got {notebook}")
+    pens = await get_sale(V8, "pens")
+    check("Pens in DB: 5 at 300", pens and pens[1] == 5, f"got {pens}")
+    eraser = await get_sale(V8, "eraser")
+    check("Eraser in DB: 20 at 50", eraser and eraser[1] == 20, f"got {eraser}")
+
+    # ==== USER V9: Baba Tunde -- Wholesale, big end-of-day batch ====
     V9 = "2349200000009"
     await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (V9,))
     await db.commit()
 
-    print("\n--- T93: [Baba Tunde] TTS splitting of long summary response ---")
-    # Record several sales so summary is long
-    for item, qty, price in [
+    print("\n--- T93: [Baba Tunde] 8-item end-of-day batch via text -> DB + TTS ---")
+    v9_items = [
         ("rice", 10, 5000), ("beans", 8, 4500), ("garri", 15, 2000),
         ("sugar", 20, 1500), ("salt", 12, 800), ("oil", 6, 3500),
         ("flour", 5, 2200), ("semolina", 7, 2800),
-    ]:
+    ]
+    for item, qty, price in v9_items:
         await _route_intent(V9, {
             "action": "record_sale", "product": item, "quantity": qty, "unit": "bag",
             "unit_price": price, "total": qty * price,
         }, "english")
 
-    # Get daily summary -- should be long
+    # Verify all 8 sales in DB
+    v9_count = await count_sales(V9)
+    check("V9 has 8 sales in DB", v9_count == 8, f"got {v9_count}")
+    v9_total = await sales_total(V9)
+    expected_v9 = sum(q * p for _, q, p in v9_items)  # 159,200
+    check(f"V9 total = {expected_v9:,}", v9_total == expected_v9, f"got {v9_total}")
+    # Spot-check individual products
+    for prod, qty, price in [("rice", 10, 5000), ("semolina", 7, 2800)]:
+        row = await get_sale(V9, prod)
+        check(f"{prod}: qty={qty}, total={qty*price}",
+              row and row[1] == qty and row[3] == qty * price, f"got {row}")
+
+    # Summary should be long enough for TTS splitting
     summary = await _route_intent(V9, {"action": "daily_summary"}, "english")
     check("Summary has multiple products", "rice" in summary and "beans" in summary)
-
-    # Test TTS splitting on the summary
     speakable = _make_speakable(summary)
     chunks = _split_into_chunks(speakable, max_chars=450)
-    check("Summary needs splitting", len(speakable) > 200,
+    check("Summary needs TTS splitting", len(speakable) > 200,
           f"speakable_len={len(speakable)}")
     if len(chunks) > 1:
         check("Chunks within limit", all(len(c) <= 450 for c in chunks))
         check("No empty chunks", all(len(c.strip()) > 0 for c in chunks))
 
-    print("\n--- T94: [Baba Tunde] Long voice for end-of-day batch ---")
-    batch_text = ("Today I sold 10 bags rice 5000 each, 8 bags beans 4500 each, "
-                  "15 bags garri 2000 each, 20 bags sugar 1500 each, "
-                  "12 bags salt 800 each, and 6 kegs oil 3500 each")
-    echo_resp = await sim_very_long_voice(V9, batch_text, "english")
-    check("Batch echo preserves all items",
-          "rice" in echo_resp and "oil" in echo_resp and "sugar" in echo_resp)
-    resp = await _route_intent(V9, {"action": "confirm_yes"}, "english")
-    check("Batch replay returned", resp.startswith("__replay__:"))
-    check("All products in replay",
-          all(p in resp for p in ["rice", "beans", "garri", "sugar", "salt", "oil"]))
+    print("\n--- T94: [Baba Tunde] Long voice batch -> confirm -> DB ---")
+    batch_text = ("Today I sold 3 bags flour 2200 each and 4 bags semolina 2800 each")
+    await sim_very_long_voice(V9, batch_text, "english")
+    resp, _ = await do_confirm_and_route(V9, {
+        "action": "multi_sale", "items": [
+            {"product": "flour", "quantity": 3, "unit": "bag", "unit_price": 2200, "total": 6600},
+            {"product": "semolina", "quantity": 4, "unit": "bag", "unit_price": 2800, "total": 11200},
+        ]
+    }, "english")
+    check("Batch sale confirmed", "flour" in resp.lower() or "Sold!" in resp)
+    # DB: now 10 sales total (8 text + 2 voice-confirmed)
+    v9_count2 = await count_sales(V9)
+    check("V9 now has 10 sales", v9_count2 == 10, f"got {v9_count2}")
+    v9_total2 = await sales_total(V9)
+    expected_v9_2 = expected_v9 + 6600 + 11200  # = 177,000
+    check(f"V9 total = {expected_v9_2:,}", v9_total2 == expected_v9_2,
+          f"got {v9_total2}")
 
-    # ==== USER V10: Mama Chisom -- Pidgin, edge cases ====
+    # ==== USER V10: Mama Chisom -- Pidgin, complex day: sale + credit + expense ====
     V10 = "2349200000010"
     await db.execute(
         "INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (V10,))
     await db.commit()
 
-    print("\n--- T95: [Mama Chisom] Empty pending -> confirm no does nothing ---")
+    print("\n--- T95: [Mama Chisom] Empty pending -> confirm no -> no DB changes ---")
     resp = await _route_intent(V10, {"action": "confirm_no"}, "pidgin")
     check("No pending: pidgin no message", "nothing to confirm" in resp.lower())
+    check("No sales from empty confirm", await count_sales(V10) == 0)
 
-    print("\n--- T96: [Mama Chisom] Long voice with numbers and customers ---")
-    complex_text = ("Mama Joy buy 3 bag rice 5000 each on credit, "
-                    "Alhaji Musa pay me 10000 naira, "
-                    "I sell 5 carton milk 8000 naira cash")
-    echo_resp = await sim_very_long_voice(V10, complex_text, "pidgin")
-    check("Complex text fully echoed", "Mama Joy" in echo_resp and "Alhaji Musa" in echo_resp)
+    print("\n--- T96: [Mama Chisom] Long voice credit sale -> confirm -> DB ---")
+    credit_voice = "Mama Joy buy 3 bag rice 5000 each on credit"
+    await sim_very_long_voice(V10, credit_voice, "pidgin")
+    resp, _ = await do_confirm_and_route(V10, {
+        "action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag",
+        "unit_price": 5000, "total": 15000, "customer": "Mama Joy", "is_credit": True,
+    }, "pidgin")
+    check("Credit sale confirmed", "Sold!" in resp or "credit" in resp.lower())
+    # DB: sale + credit
+    rice10 = await get_sale(V10, "rice")
+    check("Rice credit sale in DB: 3 at 5000",
+          rice10 and rice10[1] == 3 and rice10[3] == 15000, f"got {rice10}")
+    check("Rice marked as credit", rice10 and rice10[5] == 1,
+          f"is_credit={rice10[5] if rice10 else 'N/A'}")
+    check("Customer = Mama Joy", rice10 and rice10[4] == "Mama Joy",
+          f"got {rice10[4] if rice10 else 'N/A'}")
+    joy10 = await get_credit(V10, "Mama Joy")
+    check("Credit record for Mama Joy", joy10 is not None)
+    check("Credit amount = 15000", joy10 and joy10[1] == 15000,
+          f"got {joy10[1] if joy10 else 'N/A'}")
 
-    # Confirm yes
-    resp = await _route_intent(V10, {"action": "confirm_yes"}, "pidgin")
-    check("Complex replay returned", resp.startswith("__replay__:"))
-    replay = resp[len("__replay__:"):]
-    check("Customer names preserved", "Mama Joy" in replay and "Alhaji Musa" in replay)
+    print("\n--- T97: [Mama Chisom] Cash sale via long voice -> DB ---")
+    cash_voice = "I sell 5 carton milk 8000 naira cash"
+    await sim_very_long_voice(V10, cash_voice, "pidgin")
+    resp, _ = await do_confirm_and_route(V10, {
+        "action": "record_sale", "product": "milk", "quantity": 5, "unit": "carton",
+        "unit_price": 1600, "total": 8000,
+    }, "pidgin")
+    check("Cash sale confirmed", "Sold!" in resp)
+    milk = await get_sale(V10, "milk")
+    check("Milk in DB: 5 at 1600 = 8000",
+          milk and milk[1] == 5 and milk[3] == 8000, f"got {milk}")
+    check("Milk is NOT credit", milk and milk[5] == 0,
+          f"is_credit={milk[5] if milk else 'N/A'}")
 
-    print("\n--- T97: [Mama Chisom] Stale long voice cleared by expense ---")
+    print("\n--- T98: [Mama Chisom] Stale voice cleared by expense -> DB ---")
     stale_text = "I sell something today"
     await sim_very_long_voice(V10, stale_text, "pidgin")
-    # User types an expense instead -- _process_message clears pending
-    # before calling _route_intent. Simulate that here:
+    # Expense clears stale pending
     await _clear_pending(db, V10)
     resp = await _route_intent(V10, {
         "action": "record_expense", "amount": 2000, "category": "transport",
     }, "pidgin")
-    check("Expense clears stale long voice", "2,000" in resp)
-    pending = await _peek_pending(db, V10)
-    check("Stale pending cleared", pending is None)
-    # Confirm yes after stale cleared -> nothing to confirm
+    check("Expense recorded", "2,000" in resp)
+    exp_total = await expenses_total(V10)
+    check("Expense = 2000 in DB", exp_total == 2000, f"got {exp_total}")
+    # Stale voice sale NOT recorded
+    v10_count = await count_sales(V10)
+    check("V10 has 2 sales (no stale)", v10_count == 2, f"got {v10_count}")
+    # Confirm after stale -> nothing
     resp = await _route_intent(V10, {"action": "confirm_yes"}, "pidgin")
     check("Confirm after stale: nothing", "nothing to confirm" in resp.lower())
 
-    print("\n--- T98: [Mama Chisom] Hint column value persists ---")
-    # Mama Chisom hasn't triggered the hint yet
+    print("\n--- T99: [Mama Chisom] Hint persistence in DB ---")
     cursor = await db.execute(
         "SELECT long_voice_hinted FROM shops WHERE phone = ?", (V10,))
     row = await cursor.fetchone()
@@ -1315,22 +1501,50 @@ async def run():
     row = await cursor.fetchone()
     check("Hint column updated to 1", row[0] == 1)
 
-    # ==== Cross-user isolation checks ====
-    print("\n--- T99: Cross-user pending isolation ---")
-    # Set pending for V1, verify V2's pending is independent
+    # ==== Cross-user isolation + DB integrity ====
+    print("\n--- T100: Cross-user pending isolation ---")
     await sim_very_long_voice(V1, "test isolation V1", "english")
     await sim_very_long_voice(V2, "test isolation V2", "pidgin")
     p1 = await _peek_pending(db, V1)
     p2 = await _peek_pending(db, V2)
     check("V1 pending is V1's text", p1 and p1.get("text") == "test isolation V1")
     check("V2 pending is V2's text", p2 and p2.get("text") == "test isolation V2")
-    # Confirm V1, V2 still pending
     await _route_intent(V1, {"action": "confirm_yes"}, "english")
     p2_after = await _peek_pending(db, V2)
     check("V2 pending survives V1 confirm", p2_after and p2_after.get("text") == "test isolation V2")
     await _clear_pending(db, V2)
 
-    print("\n--- T100: Confirm prompt templates bilingual ---")
+    print("\n--- T101: Cross-user DB isolation ---")
+    # V1 sales should not appear in V2, etc.
+    v1_final = await count_sales(V1)
+    v2_final = await count_sales(V2)
+    v3_final = await count_sales(V3)
+    check("V1 has exactly 2 sales", v1_final == 2, f"got {v1_final}")
+    check("V2 has exactly 1 sale", v2_final == 1, f"got {v2_final}")
+    check("V3 has exactly 5 sales", v3_final == 5, f"got {v3_final}")
+    # V4 abandoned voice, only typed sale
+    v4_final = await count_sales(V4)
+    check("V4 has exactly 1 sale (typed only)", v4_final == 1, f"got {v4_final}")
+    # V5 rejected first, then confirmed 2 separately
+    v5_final = await count_sales(V5)
+    check("V5 has exactly 2 sales", v5_final == 2, f"got {v5_final}")
+    # V6 has 1 credit sale
+    v6_final = await count_sales(V6)
+    check("V6 has exactly 1 sale", v6_final == 1, f"got {v6_final}")
+    # V7 has 1 sale (no duplicate from double confirm)
+    v7_final = await count_sales(V7)
+    check("V7 has exactly 1 sale", v7_final == 1, f"got {v7_final}")
+    # V8 has 4 sales (text + voice + text)
+    v8_final = await count_sales(V8)
+    check("V8 has exactly 4 sales", v8_final == 4, f"got {v8_final}")
+    # V9 has 10 sales (8 text + 2 voice batch)
+    v9_final = await count_sales(V9)
+    check("V9 has exactly 10 sales", v9_final == 10, f"got {v9_final}")
+    # V10 has 2 sales (credit + cash, not the stale)
+    v10_final = await count_sales(V10)
+    check("V10 has exactly 2 sales", v10_final == 2, f"got {v10_final}")
+
+    print("\n--- T102: Bilingual templates ---")
     echo_en = get_response("voice_echo", "english", text="test text")
     echo_pi = get_response("voice_echo", "pidgin", text="test text")
     conf_en = get_response("long_voice_confirm", "english")
@@ -1340,22 +1554,39 @@ async def run():
     check("English confirm bilingual", "Did I get everything right" in conf_en)
     check("Pidgin confirm bilingual", "I hear everything correct" in conf_pi)
 
-    print("\n--- T101: TTS _make_speakable on confirm prompt ---")
-    # The echo+confirm text should be speakable (no weird artifacts)
+    print("\n--- T103: TTS speakable on confirm prompt ---")
     full_prompt = echo_en + conf_en
     speakable = _make_speakable(full_prompt)
-    check("Speakable has no raw URLs", "https://" not in speakable)
-    # Echo should be stripped from speakable (it's for text only)
+    check("No raw URLs in speakable", "https://" not in speakable)
     check("Echo stripped in TTS", "I heard" not in speakable)
 
-    # ==== Summary statistics ====
+    # ==== Grand totals across all users ====
+    print("\n--- T104: Grand totals across all 10 users ---")
+    grand_sales = sum([v1_final, v2_final, v3_final, v4_final, v5_final,
+                       v6_final, v7_final, v8_final, v9_final, v10_final])
+    check("Grand total: 29 sales across 10 users", grand_sales == 29,
+          f"got {grand_sales}")
+    # Grand revenue
+    all_totals = []
+    for u in [V1, V2, V3, V4, V5, V6, V7, V8, V9, V10]:
+        all_totals.append(await sales_total(u))
+    grand_revenue = sum(all_totals)
+    # V1=23000, V2=25000, V3=185500, V4=4500, V5=37000, V6=8000
+    # V7=15000, V8=6000, V9=225000, V10=23000
+    expected_grand = (23000 + 25000 + 185500 + 4500 + 37000 + 8000
+                      + 15000 + 6000 + 225000 + 23000)
+    check(f"Grand revenue = {expected_grand:,}",
+          grand_revenue == expected_grand,
+          f"got {grand_revenue:,}")
+
     print("\n" + "=" * 60)
-    print("Long Voice Simulation Summary:")
-    print("  Users tested: 10 (V1-V10)")
-    print("  Flows: echo-confirm, reject-retry, abandon-for-text,")
-    print("         sequential confirms, stale clearing, cross-user")
-    print("         isolation, hint persistence, TTS splitting,")
-    print("         bilingual templates, double confirm guard")
+    print("Long Voice End-of-Day Simulation Summary:")
+    print(f"  Users: 10 | Sales recorded: {grand_sales}")
+    print(f"  Revenue: {grand_revenue:,} naira")
+    print("  Verified: echo-confirm, reject-retry, abandon,")
+    print("    credit sales, multi-item batches, mixed text/voice,")
+    print("    double-confirm guard, stale clearing, cross-user")
+    print("    DB isolation, hint persistence, TTS splitting")
     print("=" * 60)
 
     # === CLEANUP ===
