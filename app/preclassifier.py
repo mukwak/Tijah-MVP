@@ -13,6 +13,10 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(no|nope|nah|no .*another|different|not (that|this)|wrong (person|one))$",
      {"action": "confirm_no"}),
 
+    # Mark last sale as credit
+    (r"^(that (was|one na|one was) (on )?credit|it was credit|na credit|mark (it |am )?(as )?credit|actually.*(on )?credit)$",
+     {"action": "mark_credit"}),
+
     # Undo / cancel
     (r"^(cancel|undo|remove|delete|wrong|mistake|cancel (that|am)|remove (that|am)|no no|that.s wrong)$",
      {"action": "undo"}),

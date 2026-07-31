@@ -892,10 +892,60 @@ async def handle_set_price(phone: str, data: dict, lang: str) -> str:
     )
     await db.commit()
 
-    return get_response(
+    result = get_response(
         "price_set", lang,
         product=product, price=_fmt(sell_price), unit=unit,
     )
+
+    # Auto-complete pending multi-sale items that needed this price
+    pending = await _peek_pending(db, phone)
+    if pending and pending.get("action") == "multi_sale_pending":
+        pending_items = pending.get("items", [])
+        pending_lang = pending.get("lang", lang)
+        when = pending.get("when", "today")
+        completed = []
+        still_needs_price = []
+
+        for item in pending_items:
+            item_product = _normalize_product_name(item.get("product", ""))
+            # Check if this item now has a price (either the one just set, or stored)
+            existing = await _find_product(db, phone, item_product)
+            if existing and existing[2] > 0:
+                item["unit_price"] = existing[2]
+                item["total"] = existing[2] * float(item.get("quantity", 1))
+                item["action"] = "record_sale"
+                if "when" not in item:
+                    item["when"] = when
+                sale_result = await handle_record_sale(phone, item, pending_lang)
+                lines = sale_result.split("\n")
+                sale_line = lines[0]
+                if len(lines) > 1 and ("credit" in lines[1].lower() or "owe" in lines[1].lower()):
+                    sale_line += "\n" + lines[1]
+                completed.append(sale_line)
+            else:
+                still_needs_price.append(item)
+
+        if completed:
+            result += "\n\n" + "\n".join(completed)
+
+        if still_needs_price:
+            # Update pending with remaining items
+            await _save_pending(db, phone, {
+                "action": "multi_sale_pending",
+                "items": still_needs_price,
+                "when": when,
+                "lang": pending_lang,
+            })
+            names = ", ".join(i.get("product", "item") for i in still_needs_price)
+            if pending_lang == "pidgin":
+                result += f"\n\nI still need price for: {names}."
+            else:
+                result += f"\n\nI still need a price for: {names}."
+        else:
+            # All done — clear pending
+            await _clear_pending(db, phone)
+
+    return result
 
 
 async def handle_change_language(phone: str, data: dict, lang: str) -> str:
@@ -1192,6 +1242,8 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
         return await handle_customer_statement(phone, pending_data, pending_lang)
     elif pending["action"] == "payment_and_credit":
         return await handle_payment_and_credit(phone, pending_data, pending_lang)
+    elif pending["action"] == "mark_credit":
+        return await handle_mark_credit(phone, pending_data, pending_lang)
 
     return get_response("error", lang)
 
@@ -1244,6 +1296,8 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
         return await handle_customer_statement(phone, pending_data, pending_lang)
     elif pending["action"] == "payment_and_credit":
         return await handle_payment_and_credit(phone, pending_data, pending_lang)
+    elif pending["action"] == "mark_credit":
+        return await handle_mark_credit(phone, pending_data, pending_lang)
 
     return get_response("error", lang)
 
@@ -1348,6 +1402,62 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
     if lang == "pidgin":
         return f"I don change am. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
     return f"Updated. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
+
+
+async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
+    """Retroactively mark the last sale as credit — 'that was on credit'."""
+    db = await get_db()
+    customer = data.get("customer")
+
+    # Find the most recent non-credit sale
+    cursor = await db.execute(
+        "SELECT id, product_name, quantity, unit_price, total, customer FROM sales "
+        "WHERE phone = ? AND is_credit = 0 ORDER BY created_at DESC LIMIT 1",
+        (phone,),
+    )
+    row = await cursor.fetchone()
+    if not row:
+        if lang == "pidgin":
+            return "I no see any recent sale to mark as credit."
+        return "No recent sale to mark as credit."
+
+    sale_id, product_name, quantity, unit_price, total, existing_customer = (
+        row[0], row[1], row[2], row[3], row[4], row[5]
+    )
+
+    # Use existing customer from the sale if no new one given
+    if not customer:
+        customer = existing_customer
+    if not customer:
+        if lang == "pidgin":
+            return "Who buy am on credit? Tell me the customer name."
+        return "Who bought on credit? Tell me the customer name."
+
+    # Customer name matching
+    if not data.get("_skip_customer_match"):
+        matched, match_type = await _find_similar_customer(db, phone, customer)
+        if match_type == "fuzzy":
+            data["_confirmed_customer"] = matched
+            data["_original_customer"] = customer
+            await _save_pending(db, phone, {"action": "mark_credit", "data": data, "lang": lang})
+            return get_response("confirm_customer", lang, original=customer, matched=matched)
+        if match_type == "exact":
+            customer = matched
+
+    # Update the sale to credit
+    await db.execute(
+        "UPDATE sales SET is_credit = 1, customer = ? WHERE id = ?",
+        (customer, sale_id),
+    )
+
+    # Add credit record
+    note = f"{_fmt(quantity)} {product_name}"
+    await _add_credit(db, phone, customer, total, note)
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"Done! {product_name} ({_fmt(total)} naira) don mark as credit for {customer}."
+    return f"Done! {product_name} ({_fmt(total)} naira) marked as credit for {customer}."
 
 
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
@@ -1471,6 +1581,7 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
 
 async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
     """Handle multiple products sold in one message."""
+    db = await get_db()
     items = data.get("items", [])
     if not items:
         return get_response("not_understood", lang)
@@ -1516,11 +1627,20 @@ async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
             summary += f"\n\nTotal: {_fmt(grand_total)} naira for all items."
 
     if needs_price:
+        # Save unpriced items as pending so set_price can auto-complete them
+        unpriced = [item for item in items if item.get("product", "").lower() in [n.lower() for n in needs_price]]
+        if unpriced:
+            await _save_pending(db, phone, {
+                "action": "multi_sale_pending",
+                "items": unpriced,
+                "when": data.get("when", "today"),
+                "lang": lang,
+            })
         names = ", ".join(needs_price)
         if lang == "pidgin":
-            summary += f"\n\nI no know the price for: {names}. Tell me the price."
+            summary += f"\n\nI no know the price for: {names}. Tell me the price and I go record am."
         else:
-            summary += f"\n\nI don't have a price for: {names}. Tell me the price."
+            summary += f"\n\nI don't have a price for: {names}. Tell me the price and I'll record them."
 
     return summary
 

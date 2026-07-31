@@ -154,10 +154,53 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
   *Affected users: All.*
   Files: `app/handlers.py` (_get_discovery_hint)
 
-- [ ] **"Check sales" (itemized list) not discoverable**
-  Users ask "how my shop do" for summaries but don't know they can ask "what did I sell today?" for an itemized list. The `check_sales` action exists but is never hinted.
-  *Affected user: Sister Funke.*
-  Files: `app/responses.py` (hints), `app/handlers.py`
+- [x] **"Check sales" (itemized list) not discoverable** (FIXED)
+  Pre-classifier catches "what did I sell today". Discovery hint added at sale count 15. Confirmed working in Round 5 simulation.
+
+---
+
+## From Simulation Round 5
+
+### Medium Severity — Multi-Sale Reliability (Priority: batch/end-of-day recording is a core use case)
+
+Users often wait until they're done serving customers to record everything at once. Multi-sale MUST work smoothly for this workflow.
+
+- [x] **Multi-sale with multiple missing prices only asks about one at a time** (FIXED)
+  Multi-sale now saves unpriced items as pending. Lists all missing prices at once. When user sets a price, pending items with that product are auto-recorded.
+
+- [x] **Setting price mid-multi-sale doesn't auto-complete pending items** (FIXED)
+  `handle_set_price` now checks for `multi_sale_pending` actions. After setting a price, any pending items matching that product are auto-recorded. Remaining unpriced items stay pending with a prompt.
+
+### Medium Severity — Other
+
+- [x] **No way to retroactively mark a sale as credit ("that was on credit")** (FIXED)
+  New `handle_mark_credit` handler + NLU action 31 (MARK_CREDIT). "That was on credit" / "na credit" finds the last non-credit sale, marks it as credit, and creates a credit record. Pre-classifier patterns added. Customer name fuzzy matching supported.
+
+### Low Severity
+
+- [ ] **No multi-customer multi-product in a single message**
+  "I sold cement to Alhaji Musa and iron rod to Chief Bala" in one message isn't supported. Each customer requires a separate message. Acceptable for alpha.
+  *Affected user: Alhaji Suleiman.*
+
+- [ ] **Price changes don't prompt to update stored price**
+  Selling at 5,500 when stored price is 5,000 doesn't ask "Should I update the price?" Next sale without a price still uses the old 5,000.
+  *Affected user: Alhaji Suleiman.*
+  Files: `app/handlers.py` (handle_record_sale)
+
+- [ ] **Unit defaults to "piece" — awkward for services**
+  Hair braiding recorded as "1 piece braiding" instead of "1 braiding". Services should default to no unit or "service".
+  *Affected user: Ada.*
+  Files: `app/handlers.py` (handle_record_sale)
+
+- [ ] **Edit targets most recent sale only; no way to pick which one**
+  "Change the braiding price" edits the most recent braiding sale. If user meant one from 3 days ago, no way to specify beyond `when`. Could confirm which sale before editing.
+  *Affected user: Ada.*
+  Files: `app/handlers.py` (handle_edit_last)
+
+- [ ] **No month-over-month comparison view**
+  "How did this month compare to last month?" only shows current month with a one-line insight. No side-by-side breakdown.
+  *Affected user: Ada.*
+  Files: `app/handlers.py` (handle_daily_summary)
 
 ---
 
@@ -178,6 +221,33 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 - [x] **Voice-guided onboarding** — audio walkthrough for first-time voice users (Iya Sade) (DONE)
 - [ ] **Voice report summary** — spoken overview of report data for voice-only users (Oga Segun)
 - [ ] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke)
+- [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
+- [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
+- [ ] **Smarter long voice note handling** — split long voice notes into chunks or process in segments to reduce data loss (Mama Ngozi)
+
+---
+
+## Stats from Simulation Round 5
+
+| Metric | Mama Ngozi | Alhaji Suleiman | Ada |
+|--------|:---:|:---:|:---:|
+| Features discovered | 12/15 | 13/15 | 14/15 |
+| Would recommend | Yes (referred a friend) | Yes | Yes (already referred) |
+| Would pay | 500-1k/mo | 3-5k/mo | 1-2k/mo |
+| Usage frequency | Daily | Daily | Daily |
+| Retention risk | Very low | Low | Very low |
+| Top frustration | Long voice notes | Can't mark sale as credit after recording | "piece" unit for services |
+
+### Comparison vs Simulation Round 4
+
+| Metric | Round 4 | Round 5 | Change |
+|--------|:---:|:---:|:---:|
+| Avg features discovered | 16.7/22+ | 13/15 | Stable (fewer total features counted) |
+| Clarification flows | N/A (not implemented) | Working (price + credit) | New |
+| Payment+credit combo | Not supported | Working | New |
+| Silent assumptions | Price + credit | None | Fixed |
+| Recommend rate | 3/3 | 3/3 | Maintained |
+| Retention risk (worst) | Low-medium | Low | Improved |
 
 ---
 

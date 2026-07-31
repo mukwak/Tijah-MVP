@@ -162,6 +162,11 @@ ACTIONS you can return:
     IMPORTANT: Only use multi_expense when there are 2+ DIFFERENT expenses. If it's just one expense, use record_expense.
     Triggers: "I spent 3k on flour and 1.5k on oil", "I pay 500 for transport and 2000 for electricity"
 
+31. MARK_CREDIT - User wants to retroactively mark the last sale as credit (after already recording it as cash)
+    {"action": "mark_credit", "customer": "Alhaji Musa"}
+    Triggers: "that was on credit", "it was credit", "na credit", "that one na credit", "mark it as credit", "actually it was on credit", "Alhaji Musa didn't pay" (after a sale)
+    customer is optional — if not mentioned, the system uses the customer from the last sale.
+
 25. CUSTOMER_STATEMENT - User wants a receipt or statement for a specific customer (to show the customer their debt/payment history)
     {"action": "customer_statement", "customer": "Mama Joy"}
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"

@@ -3,19 +3,26 @@ import asyncio
 import os
 import pathlib
 
-# Force local SQLite for testing
+# Force local SQLite for testing — use unique name to avoid lock conflicts
+import time as _time
+_db_name = f"test_smoke_{os.getpid()}.db"
 os.environ["DATABASE_URL"] = ""
-os.environ["DB_PATH"] = "test_smoke.db"
+os.environ["DB_PATH"] = _db_name
 os.environ["BASE_URL"] = "https://test.example.com"
 
 # Clean up from any prior run
-pathlib.Path("test_smoke.db").unlink(missing_ok=True)
+for _old in pathlib.Path(".").glob("test_smoke*.db*"):
+    try:
+        _old.unlink()
+    except (PermissionError, OSError):
+        pass
 
 # Must import AFTER env is set
 from app.database import get_db, close_db
 from app.preclassifier import preclassify
 from app.main import _route_intent
 from app.responses import get_response
+from app.handlers import _peek_pending
 
 PHONE = "2349000000001"
 passed = 0
@@ -426,9 +433,80 @@ async def run():
     check("Credit path records sale", "Sold!" in credit_confirm or "credit" in credit_confirm.lower())
     check("Credit path marks as credit", "credit" in credit_confirm.lower())
 
+    # --- TEST 35: Mark last sale as credit retroactively ---
+    print("\n--- TEST 35: Mark last sale as credit ---")
+    # Record a cash sale first with a unique customer name (avoid fuzzy match)
+    await _route_intent(PHONE, {
+        "action": "record_sale", "product": "bread", "quantity": 5, "unit": "piece",
+        "unit_price": 500, "total": 2500, "customer": "Brother Emeka",
+        "is_credit": False,
+    }, "english")
+    # Now mark it as credit
+    mark_resp = await _route_intent(PHONE, {"action": "mark_credit"}, "english")
+    check("Mark credit finds last sale", "bread" in mark_resp.lower())
+    check("Mark credit shows customer", "Brother Emeka" in mark_resp)
+    check("Mark credit confirms", "credit" in mark_resp.lower())
+
+    # --- TEST 36: Mark credit with no recent sale ---
+    print("\n--- TEST 36: Mark credit no sale ---")
+    # Mark all existing sales as credit so none are available
+    await db.execute("UPDATE sales SET is_credit = 1 WHERE phone = ?", (PHONE,))
+    await db.commit()
+    no_sale_resp = await _route_intent(PHONE, {"action": "mark_credit"}, "english")
+    check("No sale to mark", "no recent" in no_sale_resp.lower())
+
+    # --- TEST 37: Multi-sale saves pending for unpriced items ---
+    print("\n--- TEST 37: Multi-sale pending unpriced items ---")
+    # Clear any existing products to ensure "papaya" and "mango" have no price
+    await db.execute("DELETE FROM products WHERE phone = ? AND name IN ('papaya', 'mango')", (PHONE,))
+    await db.commit()
+    multi_resp = await _route_intent(PHONE, {
+        "action": "multi_sale",
+        "items": [
+            {"product": "papaya", "quantity": 3, "unit": "piece", "unit_price": 0, "total": 0},
+            {"product": "mango", "quantity": 5, "unit": "piece", "unit_price": 0, "total": 0},
+        ],
+        "when": "today",
+    }, "english")
+    check("Multi-sale reports missing prices", "papaya" in multi_resp.lower() and "mango" in multi_resp.lower())
+    check("Multi-sale tells user to set price", "price" in multi_resp.lower())
+    # Verify pending action was saved
+    pending = await _peek_pending(db, PHONE)
+    check("Pending multi-sale saved", pending is not None and pending.get("action") == "multi_sale_pending")
+
+    # --- TEST 38: Set price auto-completes pending multi-sale ---
+    print("\n--- TEST 38: Set price auto-completes pending ---")
+    price_resp = await _route_intent(PHONE, {
+        "action": "set_price", "product": "papaya", "unit": "piece", "sell_price": 200,
+    }, "english")
+    check("Set price confirms", "papaya" in price_resp.lower() and "200" in price_resp)
+    check("Auto-records papaya sale", "Sold!" in price_resp)
+    # Mango still needs price
+    check("Still needs mango price", "mango" in price_resp.lower())
+
+    # Set mango price too — should auto-complete and clear pending
+    price_resp2 = await _route_intent(PHONE, {
+        "action": "set_price", "product": "mango", "unit": "piece", "sell_price": 150,
+    }, "english")
+    check("Set mango price confirms", "mango" in price_resp2.lower())
+    check("Auto-records mango sale", "Sold!" in price_resp2)
+    # Pending should be cleared
+    pending2 = await _peek_pending(db, PHONE)
+    check("Pending cleared after all priced", pending2 is None)
+
+    # --- TEST 39: Pre-classifier catches "that was on credit" ---
+    print("\n--- TEST 39: Pre-classifier mark credit ---")
+    check("'that was on credit'", preclassify("that was on credit") == {"action": "mark_credit"})
+    check("'na credit'", preclassify("na credit") == {"action": "mark_credit"})
+    check("'mark it as credit'", preclassify("mark it as credit") == {"action": "mark_credit"})
+
     # === CLEANUP ===
     await close_db()
-    pathlib.Path("test_smoke.db").unlink(missing_ok=True)
+    for _old in pathlib.Path(".").glob("test_smoke*.db*"):
+        try:
+            _old.unlink()
+        except (PermissionError, OSError):
+            pass
 
     print("\n" + "=" * 60)
     print(f"RESULTS: {passed} passed, {failed} failed out of {passed + failed}")

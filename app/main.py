@@ -544,6 +544,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "edit_credit": handlers.handle_edit_credit,
         "credit_reminder": handlers.handle_credit_reminder,
         "edit_last": handlers.handle_edit_last,
+        "mark_credit": handlers.handle_mark_credit,
         "undo": handlers.handle_undo,
         "multi_sale": handlers.handle_multi_sale,
         "confirm_yes": handlers.handle_confirm_yes,

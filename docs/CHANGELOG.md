@@ -2,6 +2,19 @@
 
 ## Alpha 0.4 - July 2026
 
+### Retroactive Credit Marking
+- New `mark_credit` action: "that was on credit" / "na credit" marks the last recorded sale as credit
+- Finds the most recent non-credit sale, updates it, and creates a credit record
+- Pre-classifier catches common phrases: "that was on credit", "na credit", "mark it as credit"
+- NLU action 31 (MARK_CREDIT) added with optional customer field
+- Customer name fuzzy matching supported (triggers confirmation if ambiguous)
+
+### Multi-Sale Auto-Complete on Price Set
+- Multi-sale now saves unpriced items as pending (`multi_sale_pending`)
+- When user sets a price with "rice is 5000 per bag", any pending multi-sale items for that product are auto-recorded
+- Remaining unpriced items stay pending with a prompt listing what's still needed
+- Eliminates the need to re-send the entire batch after setting one price
+
 ### Price Ambiguity Clarification
 - When NLU detects ambiguous pricing (e.g. "3 bags for 25 thousand" — each or total?), Tijah now asks before recording
 - Interactive buttons: "Total" vs "Each" — user picks, sale is recorded with the correct interpretation
