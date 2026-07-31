@@ -73,10 +73,8 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ## Low Priority
 
-- [ ] **Multi-sale doesn't support per-item credit/customer**
-  Can't say "I sold 30 bags cement to Alhaji Musa on credit, 20 bags to Chief Obi on credit" in one message. Each credit sale to a different customer requires a separate message.
-  *Affected user: Brother Chidi.*
-  Files: `app/nlu.py`, `app/handlers.py` (handle_multi_sale)
+- [x] **Multi-sale doesn't support per-item credit/customer** (FIXED)
+  NLU prompt now explicitly documents per-item customer/is_credit fields with examples for different customers. Handler already supported it. Verified with DB tests: different customers get separate credit records.
 
 - [ ] **No product variants (size, type)**
   No way to distinguish "1/2 inch iron rod" from "3/4 inch iron rod" as variants of the same product. User has to create completely separate product names as a workaround.
@@ -245,15 +243,11 @@ Users often wait until they're done serving customers to record everything at on
   *Example: "Mama Kike" (8 chars) falsely matched "Sisi Tayo" (8 chars).*
   Files: `app/handlers.py` (_find_similar_customer)
 
-- [ ] **No multi-stock handler for restocking multiple products at once**
-  "I bought 50 phone case, 30 charger, 20 power bank" requires 3 separate messages. High-volume shops restock many products at once.
-  *Affected user: Emeka.*
-  Files: `app/nlu.py`, `app/handlers.py`
+- [x] **No multi-stock handler for restocking multiple products at once** (FIXED)
+  New `handle_multi_stock` handler + NLU action 32 (MULTI_STOCK). "I bought 50 phone case, 30 charger, 20 power bank" records all in one message with itemized list and total cost.
 
-- [ ] **No "all time" summary period**
-  "How much have I made since I started?" has no answer. Only today/yesterday/week/month are supported. Users who've been on 3+ months want cumulative stats.
-  *Affected user: Halima.*
-  Files: `app/handlers.py` (handle_daily_summary), `app/nlu.py`
+- [x] **No "all time" summary period** (FIXED)
+  Added `period: "all"` to `handle_daily_summary` with `date_filter = "1=1"`. NLU prompt updated with triggers: "how much have I made since I started", "all time summary", etc.
 
 ---
 

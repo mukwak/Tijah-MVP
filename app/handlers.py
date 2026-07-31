@@ -756,6 +756,9 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     elif period == "week":
         date_filter = "created_at >= datetime('now', '+1 hours', '-7 days')"
         period_label = "This week" if lang == "english" else "This week"
+    elif period == "all":
+        date_filter = "1=1"
+        period_label = "All time" if lang == "english" else "All time"
     else:
         date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
         period_label = "This month" if lang == "english" else "This month"
@@ -1607,6 +1610,49 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     if lang == "pidgin":
         return f"I don remove the last {label}: {desc} ({amount} naira)"
     return f"Removed last {label}: {desc} ({amount} naira)"
+
+
+async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:
+    """Handle restocking multiple products in one message."""
+    db = await get_db()
+    items = data.get("items", [])
+    if not items:
+        return get_response("not_understood", lang)
+
+    results = []
+    total_cost = 0
+    for item in items:
+        product = (item.get("product", "item")).lower()
+        quantity = float(item.get("quantity", 1))
+        unit = item.get("unit") or "piece"
+        cost_price = float(item.get("cost_price", 0))
+
+        product_id = await _get_or_create_product(db, phone, product, unit, 0, cost_price)
+
+        await db.execute(
+            "UPDATE products SET stock_qty = stock_qty + ?, cost_price = CASE WHEN ? > 0 THEN ? ELSE cost_price END WHERE id = ?",
+            (quantity, cost_price, cost_price, product_id),
+        )
+        await db.execute(
+            """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type)
+               VALUES (?, ?, ?, ?, ?, 'purchase')""",
+            (phone, product_id, product, quantity, cost_price),
+        )
+
+        line = f"  {_fmt(quantity)} {unit} {product}"
+        if cost_price > 0:
+            item_total = cost_price * quantity
+            line += f" ({_fmt(item_total)} naira)"
+            total_cost += item_total
+        results.append(line)
+
+    await db.commit()
+
+    stock_list = "\n".join(results)
+    cost_note = f"\n\nTotal cost: {_fmt(total_cost)} naira" if total_cost > 0 else ""
+    if lang == "pidgin":
+        return f"Stock added!\n{stock_list}{cost_note}"
+    return f"Stock added!\n{stock_list}{cost_note}"
 
 
 async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:

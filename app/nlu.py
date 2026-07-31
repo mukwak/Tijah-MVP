@@ -44,9 +44,10 @@ ACTIONS you can return:
 
 7. DAILY_SUMMARY - User wants an overview/summary for a time period
    {"action": "daily_summary", "period": "today"}
-   period: "today" (default), "yesterday", "week", "month"
+   period: "today" (default), "yesterday", "week", "month", "all"
    Triggers for week: "how was this week", "weekly summary", "this week"
    Triggers for month: "how was this month", "monthly summary", "this month"
+   Triggers for all: "how much have I made since I started", "all time summary", "total since I started", "since the beginning", "everything so far", "how much have I made altogether"
 
 7b. CHECK_SALES - User wants to see individual sales list (what exactly did I sell)
    {"action": "check_sales", "period": "today"}
@@ -110,7 +111,12 @@ ACTIONS you can return:
     ], "when": "today"}
     IMPORTANT: Only use multi_sale when there are 2+ DIFFERENT products. If it's just one product, use record_sale.
     Prices can be omitted if the user doesn't mention them — the system will look up stored prices. Example: "I sold 20 coke, 15 biscuit, 10 soap" → items with quantity only, unit_price: 0, total: 0.
-    Each item can optionally have "customer" and "is_credit": true if that specific item was sold on credit. Example: "I sold 3 bag cement to Alhaji Musa on credit and 2 bag rice cash" → first item has customer + is_credit, second doesn't.
+    Each item can optionally have "customer" and "is_credit": true if that specific item was sold on credit.
+    DIFFERENT customers per item are supported — put the customer on each item, NOT at the top level.
+    Example: "I sold 3 bag cement to Alhaji Musa on credit and 2 bag rice to Chief Obi on credit" →
+      items: [{"product":"cement","quantity":3,"unit":"bag","customer":"Alhaji Musa","is_credit":true,...},
+              {"product":"rice","quantity":2,"unit":"bag","customer":"Chief Obi","is_credit":true,...}]
+    Example: "I sold 3 bag cement to Alhaji Musa on credit and 2 iron rod cash" → first item has customer + is_credit, second doesn't.
     This supports end-of-day batch recording for high-volume shops.
 
 20. GET_REPORT - User wants a link to see/review all their shop records
@@ -154,6 +160,14 @@ ACTIONS you can return:
     {"action": "payment_and_credit", "customer": "Alhaji Musa", "payment_amount": 50000, "credit_amount": 22000, "credit_note": "shock absorber"}
     Triggers: "Alhaji Musa pay me 50k but buy new shock absorber 22k on credit", "Mama Joy pay 10 thousand and take 5 thousand more rice on credit"
     Use this ONLY when the message contains BOTH a payment AND a new credit for the SAME customer.
+
+32. MULTI_STOCK - User bought/restocked MULTIPLE different products in one message
+    {"action": "multi_stock", "items": [
+      {"product": "phone case", "quantity": 50, "unit": "piece", "cost_price": 500},
+      {"product": "charger", "quantity": 30, "unit": "piece", "cost_price": 1000}
+    ]}
+    IMPORTANT: Only use multi_stock when there are 2+ DIFFERENT products being restocked. If it's just one product, use add_stock.
+    Triggers: "I bought 50 phone case, 30 charger, 20 power bank", "I restock 10 bag cement and 5 bag rice"
 
 29. MULTI_EXPENSE - User mentions MULTIPLE different expenses in one message
     {"action": "multi_expense", "items": [

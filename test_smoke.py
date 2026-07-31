@@ -959,6 +959,96 @@ async def run():
     check("Pidgin hint exists", "shorter" in hint_pi.lower())
 
     # ==========================================================================
+    # MULTI-STOCK, ALL-TIME SUMMARY, MULTI-SALE PER-CUSTOMER
+    # ==========================================================================
+    print("\n--- T77b: Multi-stock handler ---")
+    MS_PHONE = "2349000000090"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (MS_PHONE,))
+    await db.commit()
+
+    resp = await _route_intent(MS_PHONE, {
+        "action": "multi_stock", "items": [
+            {"product": "phone case", "quantity": 50, "unit": "piece", "cost_price": 500},
+            {"product": "charger", "quantity": 30, "unit": "piece", "cost_price": 1000},
+            {"product": "power bank", "quantity": 20, "unit": "piece", "cost_price": 3000},
+        ]
+    }, "english")
+    check("Multi-stock confirms", "Stock added" in resp)
+    check("Multi-stock lists phone case", "phone case" in resp)
+    check("Multi-stock lists charger", "charger" in resp)
+    check("Multi-stock lists power bank", "power bank" in resp)
+    check("Multi-stock shows total cost", "115,000" in resp)  # 50*500 + 30*1000 + 20*3000
+
+    # Verify DB
+    cursor = await db.execute("SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (MS_PHONE,))
+    check("Multi-stock: 3 stock entries in DB", (await cursor.fetchone())[0] == 3)
+    cursor = await db.execute("SELECT name, stock_qty FROM products WHERE phone = ? ORDER BY name", (MS_PHONE,))
+    products = await cursor.fetchall()
+    check("Multi-stock: 3 products created", len(products) == 3)
+    stock_map = {r[0]: r[1] for r in products}
+    check("Multi-stock: charger qty=30", stock_map.get("charger") == 30)
+    check("Multi-stock: phone case qty=50", stock_map.get("phone case") == 50)
+    check("Multi-stock: power bank qty=20", stock_map.get("power bank") == 20)
+
+    print("\n--- T77c: All-time summary period ---")
+    AT_PHONE = "2349000000091"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (AT_PHONE,))
+    await db.commit()
+
+    # Record some sales
+    await _route_intent(AT_PHONE, {
+        "action": "record_sale", "product": "rice", "quantity": 5, "unit": "bag",
+        "unit_price": 5000, "total": 25000,
+    }, "english")
+    await _route_intent(AT_PHONE, {
+        "action": "record_sale", "product": "beans", "quantity": 3, "unit": "bag",
+        "unit_price": 3000, "total": 9000,
+    }, "english")
+    await _route_intent(AT_PHONE, {
+        "action": "record_expense", "amount": 2000, "category": "transport",
+    }, "english")
+
+    resp = await _route_intent(AT_PHONE, {
+        "action": "daily_summary", "period": "all",
+    }, "english")
+    check("All-time summary works", "All time" in resp)
+    check("All-time shows sales total", "34,000" in resp)
+    check("All-time shows expenses", "2,000" in resp)
+
+    print("\n--- T77d: Multi-sale with different customers per item ---")
+    MC_PHONE = "2349000000092"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (MC_PHONE,))
+    await db.commit()
+
+    resp = await _route_intent(MC_PHONE, {
+        "action": "multi_sale", "items": [
+            {"product": "cement", "quantity": 30, "unit": "bag", "unit_price": 5000,
+             "total": 150000, "customer": "Alhaji Musa", "is_credit": True},
+            {"product": "iron rod", "quantity": 20, "unit": "piece", "unit_price": 3000,
+             "total": 60000, "customer": "Chief Obi", "is_credit": True},
+        ]
+    }, "english")
+    check("Multi-sale multi-customer confirms", "Sold!" in resp or "cement" in resp.lower())
+    check("Multi-sale mentions Alhaji Musa", "Alhaji Musa" in resp)
+    check("Multi-sale mentions Chief Obi", "Chief Obi" in resp)
+
+    # Verify DB: both customers have separate credit records
+    cursor = await db.execute(
+        "SELECT customer, amount FROM credits WHERE phone = ? ORDER BY customer", (MC_PHONE,))
+    credits = await cursor.fetchall()
+    check("Multi-sale: 2 credit records", len(credits) == 2)
+    credit_map = {r[0]: r[1] for r in credits}
+    check("Multi-sale: Alhaji Musa owes 150,000", credit_map.get("Alhaji Musa") == 150000)
+    check("Multi-sale: Chief Obi owes 60,000", credit_map.get("Chief Obi") == 60000)
+
+    # Verify sales
+    cursor = await db.execute("SELECT COUNT(*) FROM sales WHERE phone = ?", (MC_PHONE,))
+    check("Multi-sale: 2 sales in DB", (await cursor.fetchone())[0] == 2)
+    cursor = await db.execute(
+        "SELECT SUM(total) FROM sales WHERE phone = ?", (MC_PHONE,))
+    check("Multi-sale: total revenue 210,000", (await cursor.fetchone())[0] == 210000)
+
+    # ==========================================================================
     # LONG VOICE END-OF-DAY SIMULATION -- 10 Users, Comprehensive
     # ==========================================================================
     # Simulates users who record their full day's transactions via a single

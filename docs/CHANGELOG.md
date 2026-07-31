@@ -2,6 +2,22 @@
 
 ## Alpha 0.4 - July 2026
 
+### Multi-Stock Restocking
+- New `handle_multi_stock` handler: "I bought 50 phone case, 30 charger, 20 power bank"
+- Records all stock entries in one message with itemized list and total cost
+- NLU action 32 (MULTI_STOCK) added
+- 430 tests passing
+
+### "All Time" Summary Period
+- `handle_daily_summary` now supports `period: "all"` for cumulative stats
+- "How much have I made since I started?" shows all-time sales, expenses, credits, payments
+- NLU prompt updated with triggers for all-time queries
+
+### Multi-Sale Per-Customer Credit
+- NLU prompt strengthened with explicit examples for different customers per item
+- "I sold cement to Alhaji Musa on credit and rice to Chief Obi on credit" now reliably parsed
+- Each customer gets their own credit record, verified with DB tests
+
 ### Fix: Discovery Hints Gated Behind Stock Tracking (M7)
 - Progressive discovery hints (credits, undo, expenses, etc.) were only shown when the product had stock data
 - Without stock data, users got repetitive "tell me how many X you have" hints instead of learning about features

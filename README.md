@@ -58,12 +58,13 @@ WhatsApp reply (text message + voice note if user sent voice)
 | Record sales | "I sold 3 bags of rice for 5000 each" |
 | Batch sales | "I sold 20 coke, 15 biscuit, 10 soap" |
 | Buy stock | "I bought 10 bags of cement at 3000" |
+| Batch restock | "I bought 50 phone case, 30 charger, 20 power bank" |
 | Credit book | "Mama Joy owes me 5000" |
 | Track payments | "Mama Joy paid 2000" |
 | Retroactive credit | "That was on credit" (marks last sale) |
 | Expenses | "I spent 500 on transport" / "3k on flour and 1.5k on oil" |
 | Set prices | "Rice is 5000 per bag" |
-| Daily/weekly/monthly summary | "How did my shop do today/this week/this month?" |
+| Daily/weekly/monthly/all-time summary | "How did my shop do today/this week/since I started?" |
 | Sales list | "What did I sell this week?" |
 | Payment history | "How much did people pay me this week?" |
 | Stock check | "How much rice do I have?" |
@@ -90,7 +91,7 @@ app/
   report.py       - Shareable HTML report pages
   config.py       - Environment variable loading
 test_local.py     - CLI simulator for local testing
-test_smoke.py     - End-to-end smoke tests (409 tests)
+test_smoke.py     - End-to-end smoke tests (430 tests)
 render.yaml       - Render deployment blueprint
 ```
 
@@ -122,7 +123,7 @@ The app is configured for Render free tier via `render.yaml`. See [ALPHA_SETUP.m
 ## Testing
 
 ```bash
-# Smoke tests (409 tests, no API keys needed)
+# Smoke tests (430 tests, no API keys needed)
 python test_smoke.py
 
 # CLI simulator (text only, uses local SQLite)
