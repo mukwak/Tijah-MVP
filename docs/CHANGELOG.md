@@ -2,6 +2,19 @@
 
 ## Alpha 0.4 - July 2026
 
+### Fix: Customer Fuzzy Match False Positives (M6)
+- `_find_similar_customer` used `min`/`max` with `key=len` to pick shorter/longer strings for character overlap comparison
+- When both names had the same character count (spaces removed), both `min` and `max` returned the first argument — comparing a name to itself (100% match)
+- Any two customer names with equal length would trigger a false "Did you mean...?" prompt
+- Fixed by using explicit `if/else` on length instead of `min`/`max`
+- Found during comprehensive 10-user clarification system test (Round 7)
+
+### Comprehensive Clarification System Test (Round 7)
+- 10 user personas across food vendors, electronics, tailoring, auto parts, cosmetics, hair salons, wholesale, and provision stores
+- 29 scenarios testing all clarification paths: price ambiguity (total/each), credit ambiguity (cash/credit), customer fuzzy matching (accept/reject), voice name correction, stale pending clearing, multi-sale auto-complete, mark credit, delete data, and back-to-back clarifications
+- Both English and Pidgin flows tested
+- 181 total tests, all passing
+
 ### Fix: Price Ambiguity Shows User's Original Number
 - Handler now saves `raw_unit_price`/`raw_total` before recalculating totals
 - Clarification message echoes the user's actual number, not the recalculated value

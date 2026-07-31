@@ -216,6 +216,19 @@ Users often wait until they're done serving customers to record everything at on
 - [x] **Stale pending actions fire on wrong context** (FIXED)
   New business actions now clear any old pending action before processing. Prevents "yes" from confirming a stale price clarification or customer match after the user moved on.
 
+---
+
+## From Clarification System Test (Round 7)
+
+*10 users, 29 scenarios, 181 tests. All pass after M6 fix.*
+
+### Medium Severity
+
+- [x] **Customer fuzzy match false positives for equal-length names** (FIXED)
+  `_find_similar_customer` used `min(a, b, key=len)` / `max(a, b, key=len)` to pick shorter/longer strings for character overlap comparison. When both names had the same character count (spaces removed), Python's `min`/`max` both returned the first argument — comparing a name to itself (100% match always). Any two customer names with equal length would trigger a false "Did you mean...?" prompt.
+  *Example: "Mama Kike" (8 chars) falsely matched "Sisi Tayo" (8 chars).*
+  Files: `app/handlers.py` (_find_similar_customer)
+
 - [ ] **No multi-stock handler for restocking multiple products at once**
   "I bought 50 phone case, 30 charger, 20 power bank" requires 3 separate messages. High-volume shops restock many products at once.
   *Affected user: Emeka.*
@@ -248,6 +261,34 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [ ] **Smarter long voice note handling** — split long voice notes into chunks or process in segments to reduce data loss (Mama Ngozi)
+
+---
+
+## Stats from Clarification System Test (Round 7)
+
+*Focused stress test of all clarification and confirmation flows.*
+
+| User | Type | Language | Scenarios | Key Flows Tested |
+|------|------|----------|:---------:|------------------|
+| Mama Blessing | Food vendor | Pidgin | 4 | Price ambiguity (Pidgin), credit ambiguity (Pidgin), confirm cash |
+| Emeka | Electronics | English | 2 | Price ambiguity: each path + total path |
+| Alhaji Musa | Building materials | English | 3 | Fuzzy customer match: accept + reject, new customer creation |
+| Sister Funke | Tailor | English | 2 | Mark credit: no customer + has customer |
+| Oga Segun | Auto parts | Pidgin | 3 | Multi-sale 3 items (2 unpriced), sequential set_price auto-complete |
+| Halima | Cosmetics | English | 3 | Stale pending (M5): price ambiguity -> new action -> confirm nothing |
+| Ada | Hair salon | English | 3 | Credit ambiguity -> credit, voice name correction + rename |
+| Brother Chidi | Wholesale | English | 3 | Payment+credit combo fuzzy match, delete data cancel |
+| Iya Sade | Food vendor | Pidgin | 3 | Reject fuzzy match, back-to-back clarifications |
+| Mama Ngozi | Provision store | English | 5 | Stale customer pending, statement fuzzy match, mark credit fuzzy |
+
+### Comparison vs Round 6
+
+| Metric | Round 6 | Round 7 | Change |
+|--------|:---:|:---:|:---:|
+| New medium issues found | 0 | 1 (M6: fuzzy match bug) | Found + fixed |
+| Total tests | 116 | 181 | +56% coverage |
+| Clarification flows tested | Basic | All paths (price/credit/customer/stale/voice) | Comprehensive |
+| Users tested | 3 | 10 | Broader diversity |
 
 ---
 
