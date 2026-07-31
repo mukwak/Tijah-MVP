@@ -1,9 +1,10 @@
-"""Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (OpenAI TTS)."""
+"""Voice processing: Speech-to-Text (Whisper) and Text-to-Speech (edge-tts)."""
 import logging
 import re
 import tempfile
 import os
 import hashlib
+import edge_tts
 from openai import AsyncOpenAI
 from app.config import OPENAI_API_KEY, AUDIO_CACHE_DIR
 
@@ -11,14 +12,9 @@ log = logging.getLogger("tijah")
 
 openai_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# gpt-4o-mini-tts follows accent/style instructions; tts-1 ignores them.
-TTS_MODEL = os.getenv("TTS_MODEL", "gpt-4o-mini-tts")
-TTS_VOICE = os.getenv("TTS_VOICE", "onyx")
-TTS_INSTRUCTIONS = os.getenv(
-    "TTS_INSTRUCTIONS",
-    "Speak with a natural Nigerian English accent, like a friendly Lagos shop assistant. "
-    "Warm, clear and unhurried. Pronounce naira and Nigerian names correctly.",
-)
+# edge-tts Nigerian English voices (free, natural-sounding)
+EDGE_TTS_VOICE = os.getenv("EDGE_TTS_VOICE", "en-NG-EzinneNeural")  # Female Nigerian
+# Alternative: "en-NG-AbeoNeural" for male Nigerian voice
 
 
 async def transcribe(audio_bytes: bytes, filename: str = "voice.ogg") -> str:
@@ -170,7 +166,7 @@ def _make_speakable(text: str) -> str:
 
 
 async def text_to_speech(text: str, language: str = "english") -> str:
-    """Convert text to speech using OpenAI TTS. Returns path to mp3 file."""
+    """Convert text to speech using edge-tts (free, Nigerian English voice). Returns path to mp3 file."""
     os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
     # Convert to conversational speech
@@ -187,25 +183,17 @@ async def text_to_speech(text: str, language: str = "english") -> str:
             return output_path
         os.remove(output_path)
 
-    # Truncate very long text to keep costs down
+    # Truncate very long text
     tts_text = speech_text[:500] if len(speech_text) > 500 else speech_text
-    log.info(f"TTS generating: text_len={len(tts_text)}")
+    log.info(f"TTS generating (edge-tts): text_len={len(tts_text)}, voice={EDGE_TTS_VOICE}")
 
-    response = await openai_client.audio.speech.create(
-        model=TTS_MODEL,
-        voice=TTS_VOICE,
-        input=tts_text,
-        response_format="mp3",
-        speed=0.95,  # Slightly slower for clarity
-        **({"instructions": TTS_INSTRUCTIONS} if TTS_INSTRUCTIONS else {}),
-    )
-
-    response.stream_to_file(output_path)
+    communicate = edge_tts.Communicate(tts_text, EDGE_TTS_VOICE, rate="-5%")
+    await communicate.save(output_path)
 
     file_size = os.path.getsize(output_path)
     log.info(f"TTS saved: {output_path} ({file_size} bytes)")
     if file_size == 0:
         os.remove(output_path)
-        raise RuntimeError("OpenAI TTS produced empty audio file")
+        raise RuntimeError("edge-tts produced empty audio file")
 
     return output_path
