@@ -215,9 +215,16 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         if hint:
             result += hint
     elif sale_count == 8:
-        hint = await _get_discovery_hint(db, phone, lang)
-        if hint:
-            result += hint
+        # Check if shop name is set; if not, hint about it
+        shop_row = await (await db.execute(
+            "SELECT name FROM shops WHERE phone = ?", (phone,)
+        )).fetchone()
+        if not (shop_row and shop_row[0]):
+            result += get_response("hint_shop_name", lang)
+        else:
+            hint = await _get_discovery_hint(db, phone, lang)
+            if hint:
+                result += hint
     elif sale_count == 12:
         result += get_response("hint_discover_backdate", lang)
     elif sale_count == 15:
@@ -875,6 +882,13 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
             result += f"\nYour gain (after cost and expenses): {_fmt(profit)} naira."
         else:
             result += f"\nProfit (after cost and expenses): {_fmt(profit)} naira."
+    elif cost_of_goods == 0 and expense_total > 0 and sales_total > 0:
+        # No stock cost data — show simpler label for food vendors etc.
+        gain = sales_total - expense_total
+        if lang == "pidgin":
+            result += f"\nWetin remain after expenses: {_fmt(gain)} naira."
+        else:
+            result += f"\nAfter expenses: {_fmt(gain)} naira."
 
     # Simple insight: compare with the previous period (revenue + profit)
     prev_filters = {
@@ -1024,16 +1038,32 @@ async def handle_change_language(phone: str, data: dict, lang: str) -> str:
 
 
 async def handle_get_report(phone: str, data: dict, lang: str) -> str:
-    """Send the shop's private shareable report link."""
+    """Send the shop's private shareable report link with a voice-friendly summary."""
     from app.config import BASE_URL
     from app.report import get_or_create_report_token
 
+    db = await get_db()
     token = await get_or_create_report_token(phone)
     url = f"{BASE_URL.rstrip('/')}/report/{token}"
     result = get_response("report_link", lang, url=url)
 
+    # Voice-friendly summary: top 3 products this month so voice-only users get value
+    cursor = await db.execute(
+        """SELECT product_name, SUM(total) FROM sales
+           WHERE phone = ? AND created_at >= datetime('now', '+1 hours', '-30 days')
+           AND product_name != '(general sales)'
+           GROUP BY product_name ORDER BY SUM(total) DESC LIMIT 3""",
+        (phone,),
+    )
+    top = await cursor.fetchall()
+    if top:
+        top_lines = ", ".join(f"{r[0]} ({_fmt(r[1])} naira)" for r in top)
+        if lang == "pidgin":
+            result += f"\n\nYour top products this month: {top_lines}."
+        else:
+            result += f"\n\nYour top products this month: {top_lines}."
+
     # No shop name yet? The natural next step is to put one on the report.
-    db = await get_db()
     row = await (await db.execute(
         "SELECT name FROM shops WHERE phone = ?", (phone,)
     )).fetchone()
@@ -1625,12 +1655,12 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amount_col}, created_at"
             + (f", {qty_col}, {pid_col}" if qty_col else "")
-            + f" FROM {table} WHERE {where} ORDER BY created_at DESC LIMIT 1",
+            + f" FROM {table} WHERE {where} ORDER BY created_at DESC, id DESC LIMIT 1",
             tuple(params),
         )
         row = await cursor.fetchone()
         if row:
-            if latest is None or row[3] > latest[3]:
+            if latest is None or row[3] > latest[3] or (row[3] == latest[3] and row[0] > latest[0]):
                 latest = row
                 latest_table = table
                 latest_qty_col = qty_col
@@ -1840,6 +1870,105 @@ async def handle_customer_statement(phone: str, data: dict, lang: str) -> str:
     return get_response("customer_receipt_link", lang, customer=customer, url=url)
 
 
+async def handle_product_profit(phone: str, data: dict, lang: str) -> str:
+    """Show per-product profitability — margin for each product with cost data."""
+    db = await get_db()
+    period = data.get("period", "month")
+
+    # Build date filter
+    date_filters = {
+        "today": "date(s.created_at) = date('now', '+1 hours')",
+        "yesterday": "date(s.created_at) = date('now', '+1 hours', '-1 day')",
+        "week": "s.created_at >= datetime('now', '+1 hours', '-7 days')",
+        "month": "s.created_at >= datetime('now', '+1 hours', '-30 days')",
+        "all": "1=1",
+    }
+    date_filter = date_filters.get(period, date_filters["month"])
+
+    cursor = await db.execute(
+        f"""SELECT p.name, SUM(s.total) as revenue,
+               SUM(s.quantity * p.cost_price) as cost,
+               SUM(s.quantity) as qty
+           FROM sales s JOIN products p ON s.product_id = p.id
+           WHERE s.phone = ? AND {date_filter} AND p.cost_price > 0
+           GROUP BY p.name ORDER BY (SUM(s.total) - SUM(s.quantity * p.cost_price)) DESC""",
+        (phone,),
+    )
+    rows = await cursor.fetchall()
+
+    if not rows:
+        if lang == "pidgin":
+            return "I no get cost data to calculate profit. Tell me how much you buy your stock, like \"I buy 10 bag rice, 3 thousand each\"."
+        return "I don't have cost data to calculate profit. Tell me your stock costs, like \"I bought 10 bags of rice at 3 thousand each\"."
+
+    period_labels = {"today": "Today", "yesterday": "Yesterday", "week": "This week", "month": "This month", "all": "All time"}
+    label = period_labels.get(period, "This month")
+
+    lines = []
+    for name, revenue, cost, qty in rows:
+        profit = revenue - cost
+        margin = int((profit / revenue) * 100) if revenue > 0 else 0
+        lines.append(f"  {name}: {_fmt(profit)} naira profit ({margin}% margin)")
+
+    product_list = "\n".join(lines)
+    if lang == "pidgin":
+        return f"{label} profit per product:\n{product_list}"
+    return f"{label} profit per product:\n{product_list}"
+
+
+async def handle_split_product(phone: str, data: dict, lang: str) -> str:
+    """Split entries from one product into a new product name."""
+    db = await get_db()
+    original = _normalize_product_name(data.get("original", ""))
+    new_name = _normalize_product_name(data.get("new_name", ""))
+
+    if not original or not new_name:
+        if lang == "pidgin":
+            return "Tell me like: \"separate jollof rice from rice\""
+        return "Tell me like: \"separate jollof rice from rice\""
+
+    # Find the original product
+    orig_product = await _find_product(db, phone, original)
+    if not orig_product:
+        if lang == "pidgin":
+            return f"I no see \"{original}\" for your products."
+        return f"I can't find \"{original}\" in your products."
+
+    # Create the new product
+    new_id = await _get_or_create_product(db, phone, new_name, "piece", orig_product[2])
+
+    # Move sales and stock entries that match the new name
+    # Check for sales whose product_name matches the new_name (case-insensitive)
+    moved_sales = 0
+    cursor = await db.execute(
+        "SELECT id FROM sales WHERE phone = ? AND product_id = ? AND LOWER(product_name) LIKE ?",
+        (phone, orig_product[0], f"%{new_name}%"),
+    )
+    for row in await cursor.fetchall():
+        await db.execute("UPDATE sales SET product_id = ?, product_name = ? WHERE id = ?",
+                         (new_id, new_name, row[0]))
+        moved_sales += 1
+
+    # Move stock entries similarly
+    cursor = await db.execute(
+        "SELECT id FROM stock_entries WHERE phone = ? AND product_id = ? AND LOWER(product_name) LIKE ?",
+        (phone, orig_product[0], f"%{new_name}%"),
+    )
+    for row in await cursor.fetchall():
+        await db.execute("UPDATE stock_entries SET product_id = ?, product_name = ? WHERE id = ?",
+                         (new_id, new_name, row[0]))
+
+    await db.commit()
+
+    if lang == "pidgin":
+        if moved_sales > 0:
+            return f"I don separate \"{new_name}\" from \"{original}\". {moved_sales} sale(s) moved."
+        return f"I don create \"{new_name}\" as separate product. No old sales to move — new sales go record under \"{new_name}\"."
+    if moved_sales > 0:
+        return f"Split \"{new_name}\" from \"{original}\". {moved_sales} sale(s) moved."
+    return f"Created \"{new_name}\" as a separate product. No old sales to move — new sales will be recorded under \"{new_name}\"."
+
+
 async def handle_merge_products(phone: str, data: dict, lang: str) -> str:
     """Merge two product names — combine sales, stock, etc. under one name."""
     db = await get_db()
@@ -1907,6 +2036,32 @@ _PRODUCT_ALIASES = {
     "sachet water": "water", "pure water": "water", "table water": "water",
     "tin milk": "peak milk", "evaporated milk": "peak milk",
     "agege bread": "bread", "sliced bread": "bread",
+    # Whisper transcription variants
+    "fry rice": "fried rice", "frying rice": "fried rice",
+    "suya meat": "suya",
+    "jollof": "jollof rice",
+    "egussi": "egusi", "egushi": "egusi",
+    "ogbono": "ogbono",
+    "stock fish": "stockfish", "stork fish": "stockfish",
+    "puff puff": "puff-puff", "pof pof": "puff-puff",
+    "chin chin": "chin-chin",
+    "palm oil": "palm oil",
+    # Industry-specific: auto parts
+    "auto nator": "alternator", "alternata": "alternator",
+    "shoka bsorber": "shock absorber", "shock absorba": "shock absorber",
+    "shocka": "shock absorber",
+    "ball joint": "ball joint",
+    "brake pad": "brake pad", "break pad": "brake pad",
+    "spark plug": "spark plug", "spark pluck": "spark plug",
+    "fan belt": "fan belt", "fanbelt": "fan belt",
+    # Building materials
+    "iron rod": "iron rod", "iron rode": "iron rod",
+    "binding wire": "binding wire",
+    # Cosmetics / hair
+    "relaxer": "relaxer", "relaxa": "relaxer",
+    "hair cream": "hair cream",
+    "body cream": "body cream",
+    "ankara": "ankara", "anakara": "ankara",
 }
 
 

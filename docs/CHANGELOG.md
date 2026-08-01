@@ -2,6 +2,43 @@
 
 ## Alpha 0.5 - August 2026
 
+### Bug Fix: Undo Timestamp Tie-Breaking (M10)
+- Added `id DESC` as secondary sort in `handle_undo` so same-second operations pick the most recent record by ID
+
+### Per-Product Profitability
+- New `handle_product_profit` handler + NLU action 35: "which product makes me the most money?"
+- Shows profit and margin percentage per product for any period (today/week/month/all)
+
+### Product Split (Reverse of Merge)
+- New `handle_split_product` handler + NLU action 34: "separate jollof rice from rice"
+- Creates new product and moves matching sales/stock entries
+
+### Whisper Transcription Aliases
+- Expanded `_PRODUCT_ALIASES` with 25+ Whisper transcription variants
+- Food: "fry rice" -> "fried rice", "egussi" -> "egusi", "stork fish" -> "stockfish"
+- Auto parts: "auto nator" -> "alternator", "shoka bsorber" -> "shock absorber", "break pad" -> "brake pad"
+- Cosmetics: "anakara" -> "ankara", "relaxa" -> "relaxer"
+
+### NLU Correction Detection
+- Added CORRECTIONS rules to NLU prompt: "the price was 500 not 300" -> edit_last (not new sale)
+- Prevents misparse of corrections as sales or price-setting actions
+
+### Profit Label for Food Vendors
+- Summary now shows "After expenses: X naira" when no stock cost data exists
+- Clearer than "Profit (after cost and expenses)" for vendors who only track expenses
+
+### Voice-Friendly Report Summary
+- `handle_get_report` now includes top 3 products with revenue alongside the report link
+- TTS speaks this for voice-only users who can't read the HTML page
+
+### Shop Name Discovery
+- Shop name hint fires at sale 8 in progressive hint system (if name not yet set)
+- New `hint_shop_name` response template in English and Pidgin
+
+### Multi-Customer Multi-Product
+- NLU prompt strengthened with explicit multi-customer example in multi_sale
+- "I sold cement to Alhaji Musa and iron rod to Chief Bala" now reliably parsed
+
 ### Product Variant Support
 - NLU now preserves size/type qualifiers: "1/2 inch iron rod" and "3/4 inch iron rod" stay distinct
 - Fuzzy product matching skips candidates when numeric qualifiers differ, preventing cross-variant confusion

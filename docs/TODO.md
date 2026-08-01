@@ -73,10 +73,9 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ## Low Priority (from Round 10)
 
-- [ ] **Undo timestamp tie-breaking favors sales over credits (M10)**
-  When multiple actions happen in the same second (e.g., mark_credit then undo), `handle_undo` picks the first table in iteration order (sales) since `>` doesn't break ties. In real usage with clock ticks between actions, this rarely occurs.
-  Fix: use `>=` instead of `>` in the comparison, or add `id` as secondary tiebreaker.
-  Files: `app/handlers.py` (handle_undo, line ~1550)
+- [x] **Undo timestamp tie-breaking favors sales over credits (M10)** (FIXED)
+  Added `id DESC` as secondary sort and `id` comparison for tie-breaking. Most recent record by ID wins when timestamps match.
+  Files: `app/handlers.py` (handle_undo)
 
 ---
 
@@ -113,22 +112,19 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
   Summary now compares profit (revenue - COGS - expenses) with previous period and shows percentage change: "Profit up 15% from last week."
   Files: `app/handlers.py` (handle_daily_summary)
 
-- [ ] **No per-product profitability view**
-  "Which product makes me the most money?" has no answer. Users want to see margin per product, not just revenue.
-  *Affected user: Brother Chidi.*
-  Files: `app/handlers.py`, `app/nlu.py`
+- [x] **No per-product profitability view** (FIXED)
+  New `handle_product_profit` handler + NLU action 35. Shows per-product profit and margin percentage. Requires cost data from stock entries.
+  Files: `app/handlers.py`, `app/nlu.py`, `app/main.py`
 
-- [ ] **Whisper transcription variants still create product duplicates**
-  "Fry rice" vs "fried rice", "suya meat" vs "suya" — accent/pronunciation variants not covered by the alias map. Need a broader fuzzy product alias strategy or auto-merge suggestion.
-  *Affected user: Iya Sade.*
-  Files: `app/handlers.py` (_PRODUCT_ALIASES, _normalize_product_name)
+- [x] **Whisper transcription variants still create product duplicates** (FIXED)
+  Expanded `_PRODUCT_ALIASES` with common Whisper transcription variants: "fry rice" -> "fried rice", "suya meat" -> "suya", "egussi" -> "egusi", "stork fish" -> "stockfish", etc.
+  Files: `app/handlers.py` (_PRODUCT_ALIASES)
 
 - [x] **No audio-only feature tips** (PARTIALLY FIXED)
   Nudges now send TTS audio for voice users. In-message hints are already spoken via the voice echo TTS reply. Remaining: standalone discovery tips could be more prominent in audio.
 
-- [ ] **NLU may misparse corrections as new sales**
-  "The price was 500 not 300" can be ambiguous — NLU might interpret as a new sale or a price-setting action instead of an edit. Needs stronger correction-detection patterns.
-  *Affected user: Iya Sade.*
+- [x] **NLU may misparse corrections as new sales** (FIXED)
+  Added explicit CORRECTIONS section to NLU prompt: "the price was X not Y" -> edit_last, "no it was X bags not Y" -> edit_last. Prevents misparse as new sale or set_price.
   Files: `app/nlu.py` (SYSTEM_PROMPT)
 
 ---
@@ -148,30 +144,25 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 
 ### Low Severity
 
-- [ ] **Whisper alias map doesn't cover industry-specific terms**
-  Spare parts names ("alternator", "shock absorber", "ball joint") aren't in the alias map. Whisper variants like "auto nator" or "shoka bsorber" create duplicate products.
-  *Affected user: Oga Segun.*
+- [x] **Whisper alias map doesn't cover industry-specific terms** (FIXED)
+  Added auto parts aliases ("auto nator" -> "alternator", "shoka bsorber" -> "shock absorber", "break pad" -> "brake pad", etc.), building materials, and cosmetics/hair product variants.
   Files: `app/handlers.py` (_PRODUCT_ALIASES)
 
-- [ ] **No product split (reverse of merge)**
-  Can merge "coca cola" into "coke" but can't split "rice" into "jollof rice" and "fried rice" by reclassifying old entries.
-  *Affected user: Sister Funke.*
-  Files: `app/handlers.py`
+- [x] **No product split (reverse of merge)** (FIXED)
+  New `handle_split_product` handler + NLU action 34. "Separate jollof rice from rice" creates a new product and moves matching sales/stock entries.
+  Files: `app/handlers.py`, `app/nlu.py`, `app/main.py`
 
-- [ ] **Profit label confusing for food vendors**
-  Food vendors record ingredient purchases as expenses, not stock. Profit shows correctly (revenue - expenses) but label "Profit (after cost and expenses)" implies they're separate. Should adapt wording when cost data is absent.
-  *Affected user: Sister Funke.*
-  Files: `app/handlers.py` (handle_daily_summary), `app/responses.py`
+- [x] **Profit label confusing for food vendors** (FIXED)
+  When no cost data exists but expenses do, summary now shows "After expenses: X naira" (English) / "Wetin remain after expenses: X naira" (Pidgin) instead of the "Profit (after cost and expenses)" label.
+  Files: `app/handlers.py` (handle_daily_summary)
 
-- [ ] **Report page is HTML-only — no voice summary**
-  Voice-only users get a report link but can't easily read the HTML page. A voice summary ("Your top 5 products this month are...") would be more accessible.
-  *Affected user: Oga Segun.*
-  Files: `app/handlers.py`, `app/main.py`
+- [x] **Report page is HTML-only — no voice summary** (FIXED)
+  `handle_get_report` now includes a voice-friendly text summary of top 3 products this month with revenue, sent alongside the report link. TTS will speak this for voice users.
+  Files: `app/handlers.py` (handle_get_report)
 
-- [ ] **Shop name feature has zero discovery**
-  None of the simulated users set their shop name. The hint exists but isn't triggered frequently enough. The shop name only shows on the report page header.
-  *Affected users: All.*
-  Files: `app/handlers.py` (_get_discovery_hint)
+- [x] **Shop name feature has zero discovery** (FIXED)
+  Shop name hint now fires at sale 8 in the progressive hint system (if name not yet set). New `hint_shop_name` response template added.
+  Files: `app/handlers.py` (handle_record_sale), `app/responses.py`
 
 - [x] **"Check sales" (itemized list) not discoverable** (FIXED)
   Pre-classifier catches "what did I sell today". Discovery hint added at sale count 15. Confirmed working in Round 5 simulation.
@@ -197,9 +188,9 @@ Users often wait until they're done serving customers to record everything at on
 
 ### Low Severity
 
-- [ ] **No multi-customer multi-product in a single message**
-  "I sold cement to Alhaji Musa and iron rod to Chief Bala" in one message isn't supported. Each customer requires a separate message. Acceptable for alpha.
-  *Affected user: Alhaji Suleiman.*
+- [x] **No multi-customer multi-product in a single message** (FIXED)
+  Already supported by `multi_sale` with per-item customer fields. NLU prompt strengthened with explicit multi-customer example: "I sold cement to Alhaji Musa and iron rod to Chief Bala" now parsed correctly.
+  Files: `app/nlu.py` (SYSTEM_PROMPT)
 
 - [ ] **Price changes don't prompt to update stored price**
   Selling at 5,500 when stored price is 5,000 doesn't ask "Should I update the price?" Next sale without a price still uses the old 5,000.
@@ -269,10 +260,10 @@ Users often wait until they're done serving customers to record everything at on
 - [x] **Quick daily total** — "I sold 20 thousand today" without listing items (Mama Adaeze, Iya Sade) (DONE)
 - [ ] **Export to Excel/PDF** — download records for printing or sharing (Chidi)
 - [ ] **Supplier tracking** — "I bought from supplier X" for purchase attribution (Chidi)
-- [ ] **Profit per product** — "Which product makes me the most money?" (Chidi)
+- [x] **Profit per product** — "Which product makes me the most money?" (Chidi) (DONE)
 - [x] **Voice-guided onboarding** — audio walkthrough for first-time voice users (Iya Sade) (DONE)
-- [ ] **Voice report summary** — spoken overview of report data for voice-only users (Oga Segun)
-- [ ] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke)
+- [x] **Voice report summary** — spoken overview of report data for voice-only users (Oga Segun) (DONE)
+- [x] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke) (DONE)
 - [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [x] **Smarter long voice note handling** (DONE) — TTS splits long replies into up to 3 voice note chunks; STT echo-and-confirm for very long notes (>45s); one-time hint for long notes (>30s). 306 tests with full DB verification.

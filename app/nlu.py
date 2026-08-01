@@ -117,6 +117,8 @@ ACTIONS you can return:
       items: [{"product":"cement","quantity":3,"unit":"bag","customer":"Alhaji Musa","is_credit":true,...},
               {"product":"rice","quantity":2,"unit":"bag","customer":"Chief Obi","is_credit":true,...}]
     Example: "I sold 3 bag cement to Alhaji Musa on credit and 2 iron rod cash" → first item has customer + is_credit, second doesn't.
+    Example: "I sold cement to Alhaji Musa and iron rod to Chief Bala" → two items, each with its own customer.
+    MULTIPLE CUSTOMERS in one message IS supported — put each customer on their respective item.
     This supports end-of-day batch recording for high-volume shops.
 
 20. GET_REPORT - User wants a link to see/review all their shop records
@@ -187,6 +189,16 @@ ACTIONS you can return:
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"
     This is NOT check_credits. Use customer_statement when the user wants a shareable link/receipt/proof for a customer.
 
+34. SPLIT_PRODUCT - User wants to separate one product into two (reverse of merge)
+    {"action": "split_product", "original": "rice", "new_name": "jollof rice"}
+    Triggers: "split rice into jollof rice", "separate jollof rice from rice", "jollof rice is different from rice", "make jollof rice a separate product"
+    The new_name entries will be split OUT of the original product.
+
+35. PRODUCT_PROFIT - User wants to know which product is most profitable or see per-product margins
+    {"action": "product_profit", "period": "month"}
+    period: "today", "week", "month", "all"
+    Triggers: "which product makes me the most money", "my most profitable product", "profit per product", "which item gives me the most gain", "wetin dey bring the most money"
+
 33. SET_NUDGE_TIME - User wants to change when they receive their evening summary
     {"action": "set_nudge_time", "hour": 19}
     hour: 0-23 (24-hour clock). Convert "7pm" to 19, "8pm" to 20, "6am" to 6, etc.
@@ -232,6 +244,11 @@ RULES:
   - If clearly cash (e.g. "I sold to X", "X came and paid for Y"): set "is_credit": false
   - If clearly credit (e.g. "X bought on credit", "X owe me", "X collect without paying"): set "is_credit": true
   - If ambiguous (e.g. "Mama Joy buy 3 bag rice 5 thousand" — could be cash or credit): set "is_credit": false AND "credit_ambiguous": true so the app can ask the user
+- CORRECTIONS: When a user says "the price was X not Y", "it was X not Y", "no it's X", "I said X not Y" — this is a CORRECTION, not a new sale.
+  - "the price was 500 not 300" → edit_last with field "price"/"unit_price", new_value 500
+  - "no it was 3 bags not 5" → edit_last with field "quantity", new_value 3
+  - "I said rice not beans" → edit_last with field "product", new_value "rice"
+  - Do NOT treat corrections as new sales or price-setting actions.
 - "when" field: "today" (default), "yesterday", a day name like "saturday" or "last friday", or an offset like "-2" for 2 days ago
 - ALWAYS include "detected_language" in your response: "pidgin" ONLY if the user clearly spoke Nigerian Pidgin, otherwise "english". When unsure, use "english".
 

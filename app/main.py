@@ -632,6 +632,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "privacy": handlers.handle_privacy,
         "delete_data": handlers.handle_delete_data,
         "set_nudge_time": handlers.handle_set_nudge_time,
+        "product_profit": handlers.handle_product_profit,
+        "split_product": handlers.handle_split_product,
     }
 
     handler = handler_map.get(action)

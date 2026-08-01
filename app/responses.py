@@ -443,6 +443,10 @@ RESPONSES = {
         "pidgin": "\n\nYou don dey record well! Try ask \"how my week go?\" or \"wetin happen this month?\" to see your progress.",
         "english": "\n\nYou're recording well! Try asking \"how was my week?\" or \"how was this month?\" to see your progress.",
     },
+    "hint_shop_name": {
+        "pidgin": "\n\nYou fit give your shop name! Just talk \"my shop name na Mama T Store\" - e go show for your report.",
+        "english": "\n\nYou can name your shop! Just say \"my shop name is Mama T Store\" - it will show on your report.",
+    },
     "nudge_top_seller": {
         "pidgin": "\n\nYour top seller today na {product} ({total} naira). Keep am stocked!",
         "english": "\n\nYour top seller today was {product} ({total} naira). Keep it stocked!",
