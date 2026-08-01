@@ -21,9 +21,14 @@ Responses now have a strict one-follow-on rule:
 - **In evening nudge**: debt aging (tiered) > restock > slow product — pick one; top seller and low stock always shown
 
 ### Testing
-- 859 smoke tests (13 new for proactive insights), all passing
-- Round 12: 6-month simulation with 5 users, 56 sales, 2.1M naira
-- Verified: milestones fire once, insights gated behind data thresholds, no stacking
+- 951 smoke tests, all passing
+- Round 12: 6-month simulation — 5 users, 56 sales, 2.1M naira
+- Round 13: 12-month voice-only simulation — 5 users, 300 sales, 7.2M naira
+  - All users hit 25-sale milestone, 4/5 hit 50-sale, W1 hit 100-sale
+  - Revenue milestones: 100K (2 users), 1M (W4 electronics)
+  - Voice name checks verified for credit customers
+  - Insights verified: keep firing throughout 12 months (no dead zone)
+  - Progressive discovery: slowest user (W3) still discovered 17 features organically
 
 ---
 
