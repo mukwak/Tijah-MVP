@@ -187,6 +187,11 @@ ACTIONS you can return:
     Triggers: "receipt for Mama Joy", "Mama Joy receipt", "show me Mama Joy statement", "send Mama Joy her record", "give me proof for Mama Joy", "Mama Joy record"
     This is NOT check_credits. Use customer_statement when the user wants a shareable link/receipt/proof for a customer.
 
+33. SET_NUDGE_TIME - User wants to change when they receive their evening summary
+    {"action": "set_nudge_time", "hour": 19}
+    hour: 0-23 (24-hour clock). Convert "7pm" to 19, "8pm" to 20, "6am" to 6, etc.
+    Triggers: "send my nudge at 7pm", "change my evening summary to 8pm", "nudge me at 19", "send summary at 7 in the evening"
+
 RULES:
 - "Naira", "N", "#" all mean Nigerian Naira currency
 - "k" or "thousand" = multiply by 1000
@@ -208,6 +213,10 @@ RULES:
   "milo" / "beverage" = "milo" (if specifically milo)
   "bread" / "agege bread" / "sliced bread" = "bread"
   "cement" / "dangote cement" / "bua cement" = "cement" (unless user tracks multiple brands)
+  IMPORTANT — PRESERVE SIZE/TYPE QUALIFIERS that distinguish product variants:
+  "1/2 inch iron rod" and "3/4 inch iron rod" are DIFFERENT products — keep the size prefix
+  "big milo" vs "small milo", "50kg cement" vs "25kg cement", "long nail" vs "short nail" — keep the qualifier
+  Only normalize when two names are truly the SAME product (synonyms), not when a qualifier creates a distinct variant.
   Use lowercase singular for all product names. Strip unit words: "bag of rice" → "rice", "crate of coke" → "coke"
 - If you can calculate total from quantity * unit_price, do so
 - If only total is given, set unit_price = total / quantity

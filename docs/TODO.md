@@ -85,10 +85,9 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 - [x] **Multi-sale doesn't support per-item credit/customer** (FIXED)
   NLU prompt now explicitly documents per-item customer/is_credit fields with examples for different customers. Handler already supported it. Verified with DB tests: different customers get separate credit records.
 
-- [ ] **No product variants (size, type)**
-  No way to distinguish "1/2 inch iron rod" from "3/4 inch iron rod" as variants of the same product. User has to create completely separate product names as a workaround.
-  *Affected user: Brother Chidi.*
-  Files: `app/handlers.py`, `app/database.py` (products table)
+- [x] **No product variants (size, type)** (FIXED)
+  NLU prompt now preserves size/type qualifiers ("1/2 inch iron rod" vs "3/4 inch iron rod" stay distinct). Fuzzy product matching updated to skip candidates when numeric qualifiers differ, preventing cross-variant confusion.
+  Files: `app/nlu.py` (SYSTEM_PROMPT), `app/handlers.py` (_find_product)
 
 - [x] **No payment summary / payment history view** (FIXED)
   New `check_payments` handler with period filtering and per-customer breakdown. NLU action 22 added.
@@ -99,22 +98,19 @@ From 3-month user simulations (July 2026). Prioritized by severity and user impa
 - [x] **No way to merge duplicate products** (FIXED)
   New `merge_products` handler: "coke and coca cola are the same thing" merges all sales, stock entries, and quantities. NLU action 24 added.
 
-- [ ] **Evening nudge timing not configurable**
-  The cron endpoint fires when the external service calls it. Users in different time zones or with different shop hours can't customize when they get nudged.
-  *Low impact for alpha, matters at scale.*
-  Files: `app/main.py` (daily_nudge)
+- [x] **Evening nudge timing not configurable** (FIXED)
+  Added `nudge_hour` column to shops table (default 20 = 8pm WAT). New `set_nudge_time` handler and NLU action 33. Daily nudge cron checks each user's preferred hour before sending.
+  Files: `app/main.py` (daily_nudge), `app/handlers.py` (handle_set_nudge_time), `app/database.py` (schema + migration), `app/nlu.py`
 
 - [x] **Evening nudge "X sales" count is misleading for multi-sale users** (FIXED)
   Now uses `SUM(quantity)` instead of `COUNT(*)`. Template wording changed from "things"/"sales" to "items".
 
-- [ ] **No product categories/grouping**
-  As product list grows past 10+ items, stock check and report become unwieldy. No way to group products (e.g. "drinks", "food", "building materials").
-  *Affected user: Mama Adaeze.*
-  Files: `app/database.py` (products table), `app/handlers.py`, `app/report.py`
+- [x] **No product categories/grouping** (FIXED)
+  When 8+ products exist, `check_stock` groups by stock level: "In stock" (>5), "Low stock" (1-5), "Out of stock" (<=0). Provides at-a-glance view without adding category complexity.
+  Files: `app/handlers.py` (handle_check_stock)
 
-- [ ] **Profit trend not shown in summary**
-  Summary compares sales total to previous period but not profit. Users who care about profit want "your profit this week vs last week."
-  *Affected user: Brother Chidi.*
+- [x] **Profit trend not shown in summary** (FIXED)
+  Summary now compares profit (revenue - COGS - expenses) with previous period and shows percentage change: "Profit up 15% from last week."
   Files: `app/handlers.py` (handle_daily_summary)
 
 - [ ] **No per-product profitability view**

@@ -254,9 +254,13 @@ async def daily_nudge(request: Request):
 
     db = await get_db()
 
+    # Current hour (WAT = UTC+1)
+    from datetime import datetime as dt, timezone, timedelta
+    current_hour = dt.now(timezone(timedelta(hours=1))).hour
+
     # Find shops active in the last 7 days
     cursor = await db.execute(
-        """SELECT DISTINCT s.phone, s.language, s.voice_user FROM shops s
+        """SELECT DISTINCT s.phone, s.language, s.voice_user, s.nudge_hour FROM shops s
            WHERE EXISTS (
                SELECT 1 FROM sales WHERE sales.phone = s.phone
                AND sales.created_at >= datetime('now', '+1 hours', '-7 days')
@@ -267,6 +271,10 @@ async def daily_nudge(request: Request):
     sent = 0
     for shop in active_shops:
         phone, lang, is_voice_user = shop[0], shop[1] or "english", shop[2] or 0
+        nudge_hour = shop[3] if len(shop) > 3 and shop[3] is not None else 20
+        # Skip if current hour doesn't match user's preferred nudge hour
+        if nudge_hour != current_hour:
+            continue
 
         cursor = await db.execute(
             "SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND date(created_at) = date('now', '+1 hours')",
@@ -623,6 +631,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "record_bulk_sale": handlers.handle_record_bulk_sale,
         "privacy": handlers.handle_privacy,
         "delete_data": handlers.handle_delete_data,
+        "set_nudge_time": handlers.handle_set_nudge_time,
     }
 
     handler = handler_map.get(action)

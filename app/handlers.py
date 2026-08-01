@@ -503,10 +503,34 @@ async def handle_check_stock(phone: str, data: dict, lang: str) -> str:
     if not rows:
         return get_response("stock_empty", lang)
 
-    stock_list = "\n".join(
-        f"  {row[0]}: {_fmt(row[1])} {row[2]}" + (f" @ {_fmt(row[3])} ea" if row[3] else "")
-        for row in rows
-    )
+    # Group products if 8+ items (helps high-volume shops)
+    if len(rows) >= 8:
+        # Split into stocked (qty > 0), low (0 < qty <= 5), out/negative
+        stocked = [r for r in rows if r[1] > 5]
+        low = [r for r in rows if 0 < r[1] <= 5]
+        out = [r for r in rows if r[1] <= 0]
+
+        parts = []
+        if stocked:
+            lines = "\n".join(
+                f"  {r[0]}: {_fmt(r[1])} {r[2]}" + (f" @ {_fmt(r[3])} ea" if r[3] else "")
+                for r in stocked)
+            parts.append(f"In stock:\n{lines}")
+        if low:
+            lines = "\n".join(f"  {r[0]}: {_fmt(r[1])} {r[2]}" for r in low)
+            label = "Low stock (restock soon):" if lang == "english" else "Stock dey low:"
+            parts.append(f"{label}\n{lines}")
+        if out:
+            lines = "\n".join(f"  {r[0]}: {_fmt(r[1])} {r[2]}" for r in out)
+            label = "Out of stock:" if lang == "english" else "Don finish:"
+            parts.append(f"{label}\n{lines}")
+
+        stock_list = "\n\n".join(parts)
+    else:
+        stock_list = "\n".join(
+            f"  {row[0]}: {_fmt(row[1])} {row[2]}" + (f" @ {_fmt(row[3])} ea" if row[3] else "")
+            for row in rows
+        )
     return get_response(
         "stock_check_all", lang,
         stock_list=stock_list, count=len(rows),
@@ -852,7 +876,7 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
         else:
             result += f"\nProfit (after cost and expenses): {_fmt(profit)} naira."
 
-    # Simple insight: compare with the previous period
+    # Simple insight: compare with the previous period (revenue + profit)
     prev_filters = {
         "today": ("date(created_at) = date('now', '+1 hours', '-1 day')", "Yesterday"),
         "week": (
@@ -876,6 +900,37 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
         if prev_total > 0:
             key = "insight_better" if sales_total > prev_total else "insight_less"
             result += get_response(key, lang, prev_label=prev_label, prev_total=_fmt(prev_total))
+
+        # Profit trend: compare profit if cost data exists for both periods
+        if cost_of_goods > 0:
+            prev_profit_filter = prev_filter.replace("created_at", "s.created_at")
+            cursor = await db.execute(
+                f"""SELECT COALESCE(SUM(s.quantity * p.cost_price), 0)
+                    FROM sales s JOIN products p ON s.product_id = p.id
+                    WHERE s.phone = ? AND {prev_profit_filter} AND p.cost_price > 0""",
+                (phone,),
+            )
+            prev_cogs = (await cursor.fetchone())[0]
+            cursor = await db.execute(
+                f"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE phone = ? AND {prev_filter}",
+                (phone,),
+            )
+            prev_expenses = (await cursor.fetchone())[0]
+            if prev_total > 0 and prev_cogs > 0:
+                prev_profit = prev_total - prev_cogs - prev_expenses
+                if prev_profit > 0:
+                    if profit > prev_profit:
+                        pct = int((profit - prev_profit) / prev_profit * 100)
+                        if lang == "pidgin":
+                            result += f"\nYour gain don go up {pct}% compared to {prev_label.lower()}!"
+                        else:
+                            result += f"\nYour profit is up {pct}% compared to {prev_label.lower()}!"
+                    else:
+                        pct = int((prev_profit - profit) / prev_profit * 100)
+                        if lang == "pidgin":
+                            result += f"\nYour gain don drop {pct}% compared to {prev_label.lower()}."
+                        else:
+                            result += f"\nYour profit is down {pct}% compared to {prev_label.lower()}."
 
     # If the user has never opened their report, point them to it once per summary
     token_row = await (await db.execute(
@@ -999,6 +1054,34 @@ async def handle_set_shop_name(phone: str, data: dict, lang: str) -> str:
     await db.execute("UPDATE shops SET name = ? WHERE phone = ?", (name, phone))
     await db.commit()
     return get_response("shop_name_set", lang, name=name)
+
+
+async def handle_set_nudge_time(phone: str, data: dict, lang: str) -> str:
+    """Set the user's preferred evening nudge hour (0-23)."""
+    db = await get_db()
+    hour = data.get("hour")
+    if hour is None:
+        if lang == "pidgin":
+            return "Wetin time you wan get your evening summary? Tell me like \"send my nudge at 7pm\"."
+        return "What time do you want your evening summary? Tell me like \"send my nudge at 7pm\"."
+
+    hour = int(hour) % 24
+    await db.execute("UPDATE shops SET nudge_hour = ? WHERE phone = ?", (hour, phone))
+    await db.commit()
+
+    # Format hour for display
+    if hour == 0:
+        time_str = "12am"
+    elif hour < 12:
+        time_str = f"{hour}am"
+    elif hour == 12:
+        time_str = "12pm"
+    else:
+        time_str = f"{hour - 12}pm"
+
+    if lang == "pidgin":
+        return f"Okay! I go send your evening summary by {time_str} every day."
+    return f"Got it! I'll send your evening summary at {time_str} every day."
 
 
 async def handle_feedback(phone: str, data: dict, lang: str) -> str:
@@ -1879,15 +1962,26 @@ async def _find_product(db, phone, name):
     )
     rows = await cursor.fetchall()
 
+    # Extract numeric qualifiers (digits, fractions like 1/2) from search term
+    search_nums = set(re.findall(r'\d+/\d+|\d+', name.lower()))
+
     for r in rows:
         stored = r[1].lower()
         # Search term is a whole word inside stored name
         if pattern.search(stored):
+            # If both have numeric qualifiers, they must match to avoid
+            # confusing variants like "1/2 inch rod" vs "3/4 inch rod"
+            stored_nums = set(re.findall(r'\d+/\d+|\d+', stored))
+            if search_nums and stored_nums and search_nums != stored_nums:
+                continue
             return r
         # Stored name is a whole word inside search term (guard against short names like "oil" matching "groundnut oil")
         if len(stored) >= 4:
             stored_pattern = re.compile(r'\b' + re.escape(stored) + r'\b')
             if stored_pattern.search(name.lower()):
+                stored_nums = set(re.findall(r'\d+/\d+|\d+', stored))
+                if search_nums and stored_nums and search_nums != stored_nums:
+                    continue
                 return r
 
     return None

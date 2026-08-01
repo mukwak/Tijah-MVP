@@ -1,5 +1,26 @@
 # Changelog
 
+## Alpha 0.5 - August 2026
+
+### Product Variant Support
+- NLU now preserves size/type qualifiers: "1/2 inch iron rod" and "3/4 inch iron rod" stay distinct
+- Fuzzy product matching skips candidates when numeric qualifiers differ, preventing cross-variant confusion
+
+### Configurable Nudge Timing
+- New `nudge_hour` column in shops table (default 20 = 8pm WAT)
+- `set_nudge_time` handler and NLU action 33: "send my summary at 7pm"
+- Daily nudge cron checks each user's preferred hour before sending
+
+### Stock Level Grouping
+- When 8+ products tracked, `check_stock` groups by level: In stock (>5), Low stock (1-5), Out of stock (<=0)
+- Provides quick overview without category management overhead
+
+### Profit Trend Comparison
+- Summary now compares profit (revenue - COGS - expenses) with previous period
+- Shows percentage change: "Profit up 15% from last week"
+
+---
+
 ## Alpha 0.4 - July 2026
 
 ### 3-Month User Simulation (Round 10)
