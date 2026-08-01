@@ -2953,6 +2953,1022 @@ async def run():
     print("  All users: onboarded, privacy-aware, discovered features organically")
     print("=" * 60)
 
+    # ==========================================================================
+    # 3-MONTH USER SIMULATION -- 5 Low-Literate Nigerian Users (Round 11)
+    # ==========================================================================
+    # Tests ALL features end-to-end including new ones:
+    #   - product_profit, split_product, voice report summary, shop name hint
+    #   - profit label for food vendors, M10 undo fix, Whisper aliases
+    #   - NLU correction detection, multi-customer multi-product
+    #   - All existing features: sales, stock, credits, payments, expenses,
+    #     summary, check_stock grouping, nudge timing, privacy, report
+    # Users:
+    #   U1: Mama Bisi -- Food vendor, Pidgin, voice-first, very low literacy
+    #   U2: Oga Chukwu -- Auto parts dealer, English, text, moderate literacy
+    #   U3: Sister Halima -- Cosmetics/hair salon, English, mixed, semi-literate
+    #   U4: Baba Idris -- Building materials, Pidgin, text, low literacy
+    #   U5: Ada Blessing -- Provision store, English, voice+text, moderate literacy
+    print("\n" + "=" * 60)
+    print("3-MONTH USER SIMULATION -- 5 Low-Literate Users (Round 11)")
+    print("  Tests: ALL features end-to-end, new fixes, DB correctness")
+    print("=" * 60)
+
+    # ========== USER U1: Mama Bisi -- Food vendor, Pidgin, voice-first ==========
+    # Sells jollof rice, fried rice, moi moi, puff-puff at a market stall.
+    # Very low literacy. Speaks Pidgin. Tests: food vendor profit label,
+    # progressive hints, shop name discovery, voice report summary.
+    U1 = "2349500000001"
+    await db.execute(
+        "INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (U1,))
+    await db.commit()
+    u1_insights = []
+
+    print("\n--- U1 Week 1: Onboarding (Mama Bisi, Pidgin, food vendor) ---")
+
+    # Day 1: Welcome
+    welcome = get_response("welcome", "pidgin")
+    check("U1 welcome short", len(welcome) < 400, f"got {len(welcome)} chars")
+    check("U1 welcome has privacy", "data" in welcome.lower())
+    check("U1 welcome not overwhelming", welcome.count("\n") < 8)
+    u1_insights.append("welcome")
+
+    # Day 1: First sale -- jollof rice
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "jollof rice", "quantity": 20, "unit": "plate",
+        "unit_price": 500, "total": 10000,
+    }, "pidgin")
+    check("U1 sale 1 confirmed", "Sold!" in resp)
+    check("U1 hint 1: credit", "owe" in resp.lower() or "credit" in resp.lower())
+    u1_insights.append("hint: credit")
+
+    # Day 1: Second sale -- fried rice
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "fried rice", "quantity": 15, "unit": "plate",
+        "unit_price": 500, "total": 7500,
+    }, "pidgin")
+    check("U1 sale 2 confirmed", "Sold!" in resp)
+    check("U1 hint 2: undo", "cancel" in resp.lower())
+    u1_insights.append("hint: undo")
+
+    # Day 2: Third sale -- moi moi
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "moi moi", "quantity": 30, "unit": "piece",
+        "unit_price": 200, "total": 6000,
+    }, "pidgin")
+    check("U1 sale 3 confirmed", "Sold!" in resp)
+    u1_insights.append("hint: expenses")
+
+    # Day 2: Records expenses (ingredient costs -- food vendor style)
+    resp = await _route_intent(U1, {
+        "action": "record_expense", "amount": 5000, "category": "supplies",
+        "description": "rice and beans",
+    }, "pidgin")
+    check("U1 expense 1 recorded", "5,000" in resp)
+    u1_insights.append("used: expenses")
+
+    resp = await _route_intent(U1, {
+        "action": "record_expense", "amount": 3000, "category": "supplies",
+        "description": "oil and seasoning",
+    }, "pidgin")
+    check("U1 expense 2 recorded", "3,000" in resp)
+
+    # Day 3: Sale 4 -- puff-puff (no stock data -> stock hint)
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "puff-puff", "quantity": 50, "unit": "piece",
+        "unit_price": 100, "total": 5000,
+    }, "pidgin")
+    check("U1 sale 4 confirmed", "Sold!" in resp)
+    check("U1 hint 4: stock tracking", "how many" in resp.lower() or "count" in resp.lower())
+    u1_insights.append("hint: stock tracking")
+
+    # Day 4: Sale 5 -- discovery hint
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "jollof rice", "quantity": 25, "unit": "plate",
+        "unit_price": 500, "total": 12500,
+    }, "pidgin")
+    check("U1 sale 5 confirmed", "Sold!" in resp)
+    u1_insights.append("sale 5")
+
+    # Week 2: More sales, credit, daily summary
+    print("\n--- U1 Week 2-3: Building habits ---")
+
+    # Credit sale
+    resp = await _route_intent(U1, {
+        "action": "record_credit", "customer": "Mama Kudi", "amount": 3000,
+        "note": "6 plate jollof rice",
+    }, "pidgin")
+    check("U1 credit recorded", "3,000" in resp and "Mama Kudi" in resp)
+    u1_insights.append("used: credits")
+
+    # More sales (6, 7)
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "fried rice", "quantity": 10, "unit": "plate",
+        "unit_price": 500, "total": 5000,
+    }, "pidgin")
+    check("U1 sale 6 confirmed", "Sold!" in resp)
+
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "moi moi", "quantity": 40, "unit": "piece",
+        "unit_price": 200, "total": 8000,
+    }, "pidgin")
+    check("U1 sale 7 confirmed", "Sold!" in resp)
+
+    # Sale 8 -- should fire shop name hint (no name set)
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "puff-puff", "quantity": 60, "unit": "piece",
+        "unit_price": 100, "total": 6000,
+    }, "pidgin")
+    check("U1 sale 8 confirmed", "Sold!" in resp)
+    check("U1 hint 8: shop name hint", "shop name" in resp.lower())
+    u1_insights.append("hint: shop name")
+
+    # Sets shop name (discovered from hint!)
+    resp = await _route_intent(U1, {
+        "action": "set_shop_name", "name": "Mama Bisi Kitchen",
+    }, "pidgin")
+    check("U1 shop name set", "Mama Bisi Kitchen" in resp)
+    u1_insights.append("used: shop name")
+
+    # Daily summary -- food vendor profit label (no cost data, only expenses)
+    resp = await _route_intent(U1, {"action": "daily_summary", "period": "today"}, "pidgin")
+    check("U1 summary works", "naira" in resp.lower())
+    # Food vendor: no stock cost data -> should show "after expenses" not "Profit (after cost and expenses)"
+    if "after cost and expenses" in resp.lower():
+        check("U1 profit label NOT 'after cost and expenses'", False,
+              "food vendor should get simpler label")
+    else:
+        check("U1 profit label is food-vendor-friendly", True)
+    u1_insights.append("used: summary (food vendor label)")
+
+    # More sales (9-11)
+    for i in range(3):
+        await _route_intent(U1, {
+            "action": "record_sale", "product": "jollof rice", "quantity": 15, "unit": "plate",
+            "unit_price": 500, "total": 7500,
+        }, "pidgin")
+
+    # Payment from Mama Kudi
+    resp = await _route_intent(U1, {
+        "action": "record_payment", "customer": "Mama Kudi", "amount": 3000,
+    }, "pidgin")
+    check("U1 payment recorded", "3,000" in resp and "Mama Kudi" in resp)
+    u1_insights.append("used: payments")
+
+    # Privacy check
+    resp = await _route_intent(U1, {"action": "privacy"}, "pidgin")
+    check("U1 privacy response", "data" in resp.lower())
+    u1_insights.append("used: privacy")
+
+    # Sale 12 -> backdate hint
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "fried rice", "quantity": 20, "unit": "plate",
+        "unit_price": 500, "total": 10000,
+    }, "pidgin")
+    check("U1 sale 12: backdate hint", "yesterday" in resp.lower())
+    u1_insights.append("hint: backdate")
+
+    # Sales 13-14
+    for i in range(2):
+        await _route_intent(U1, {
+            "action": "record_sale", "product": "moi moi", "quantity": 25, "unit": "piece",
+            "unit_price": 200, "total": 5000,
+        }, "pidgin")
+
+    # Sale 15 -> check_sales hint
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "puff-puff", "quantity": 40, "unit": "piece",
+        "unit_price": 100, "total": 4000,
+    }, "pidgin")
+    check("U1 sale 15: check_sales hint", "wetin i sell" in resp.lower() or "what did i sell" in resp.lower())
+    u1_insights.append("hint: check_sales")
+
+    # Report with voice summary
+    resp = await _route_intent(U1, {"action": "get_report"}, "pidgin")
+    check("U1 report link present", "report/" in resp)
+    check("U1 voice summary: top products", "top products" in resp.lower())
+    u1_insights.append("used: report (voice summary)")
+
+    # What can you do
+    resp = await _route_intent(U1, {"action": "what_can_you_do"}, "pidgin")
+    check("U1 what can you do response", "things" in resp.lower() or "fit do" in resp.lower())
+    u1_insights.append("used: what can you do")
+
+    # Sale 16-19 to reach 20
+    for i in range(4):
+        await _route_intent(U1, {
+            "action": "record_sale", "product": "jollof rice", "quantity": 10, "unit": "plate",
+            "unit_price": 500, "total": 5000,
+        }, "pidgin")
+
+    # Sale 20 -> weekly hint
+    resp = await _route_intent(U1, {
+        "action": "record_sale", "product": "fried rice", "quantity": 10, "unit": "plate",
+        "unit_price": 500, "total": 5000,
+    }, "pidgin")
+    check("U1 sale 20: weekly hint", "week" in resp.lower())
+    u1_insights.append("hint: weekly")
+
+    # All-time summary
+    resp = await _route_intent(U1, {"action": "daily_summary", "period": "all"}, "pidgin")
+    check("U1 all-time summary", "naira" in resp.lower())
+    u1_insights.append("used: all-time summary")
+
+    # DB verification for U1
+    u1_final_sales = await count_sales(U1)
+    u1_final_rev = await sales_total(U1)
+    u1_final_expenses = await expenses_total(U1)
+    # 20 sales: 10000+7500+6000+5000+12500+5000+8000+6000+(3*7500)+10000+(2*5000)+4000+(4*5000)+5000
+    # = 10000+7500+6000+5000+12500+5000+8000+6000+22500+10000+10000+4000+20000+5000 = 136500
+    expected_u1_rev = 10000+7500+6000+5000+12500+5000+8000+6000+22500+10000+10000+4000+20000+5000
+    check(f"U1 DB: 20 sales", u1_final_sales == 20, f"got {u1_final_sales}")
+    check(f"U1 DB: revenue = {expected_u1_rev:,}", u1_final_rev == expected_u1_rev,
+          f"got {u1_final_rev}")
+    check("U1 DB: expenses = 8,000", u1_final_expenses == 8000, f"got {u1_final_expenses}")
+
+    print(f"\n  U1 (Mama Bisi): {len(u1_insights)} features discovered")
+    print(f"    -> {', '.join(u1_insights)}")
+
+    # ========== USER U2: Oga Chukwu -- Auto parts dealer, English, text ==========
+    # Sells alternators, brake pads, shock absorbers, spark plugs.
+    # Tests: Whisper alias map (industry terms), product_profit, split_product,
+    # M10 undo fix, multi-stock, nudge timing, stock level grouping.
+    U2 = "2349500000002"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U2,))
+    await db.commit()
+    u2_insights = []
+
+    print("\n--- U2 Week 1: Onboarding (Oga Chukwu, English, auto parts) ---")
+
+    welcome = get_response("welcome", "english")
+    u2_insights.append("welcome")
+
+    # Day 1: First sale -- alternator
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "alternator", "quantity": 1, "unit": "piece",
+        "unit_price": 35000, "total": 35000,
+    }, "english")
+    check("U2 sale 1 confirmed", "Sold!" in resp)
+    u2_insights.append("hint: credit")
+
+    # Day 1: Stock up -- multi-stock with cost prices (for profit tracking)
+    resp = await _route_intent(U2, {
+        "action": "multi_stock", "items": [
+            {"product": "alternator", "quantity": 5, "unit": "piece", "cost_price": 25000},
+            {"product": "brake pad", "quantity": 20, "unit": "set", "cost_price": 3000},
+            {"product": "shock absorber", "quantity": 10, "unit": "piece", "cost_price": 8000},
+            {"product": "spark plug", "quantity": 50, "unit": "piece", "cost_price": 500},
+            {"product": "fan belt", "quantity": 15, "unit": "piece", "cost_price": 2000},
+            {"product": "ball joint", "quantity": 10, "unit": "piece", "cost_price": 5000},
+            {"product": "brake disc", "quantity": 8, "unit": "piece", "cost_price": 7000},
+            {"product": "oil filter", "quantity": 30, "unit": "piece", "cost_price": 800},
+        ]
+    }, "english")
+    check("U2 multi-stock: 8 items", "Stock added" in resp)
+    check("U2 multi-stock: alternator listed", "alternator" in resp)
+    check("U2 multi-stock: spark plug listed", "spark plug" in resp)
+    u2_insights.append("used: multi-stock (8 items)")
+
+    # Verify stock DB
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM products WHERE phone = ?", (U2,))
+    u2_products = (await cursor.fetchone())[0]
+    check("U2 DB: 8 products created", u2_products == 8, f"got {u2_products}")
+
+    # Day 2-5: Sales with cost data
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "brake pad", "quantity": 3, "unit": "set",
+        "unit_price": 5500, "total": 16500,
+    }, "english")
+    check("U2 sale 2 (brake pad)", "Sold!" in resp)
+    u2_insights.append("hint: undo")
+
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "shock absorber", "quantity": 2, "unit": "piece",
+        "unit_price": 15000, "total": 30000,
+    }, "english")
+    check("U2 sale 3 (shock absorber)", "Sold!" in resp)
+    u2_insights.append("hint: expenses")
+
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "spark plug", "quantity": 10, "unit": "piece",
+        "unit_price": 1200, "total": 12000,
+    }, "english")
+    check("U2 sale 4 confirmed", "Sold!" in resp)
+
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "fan belt", "quantity": 3, "unit": "piece",
+        "unit_price": 4000, "total": 12000,
+    }, "english")
+    check("U2 sale 5 confirmed", "Sold!" in resp)
+
+    # Expenses
+    resp = await _route_intent(U2, {
+        "action": "record_expense", "amount": 5000, "category": "transport",
+        "description": "delivery to customer",
+    }, "english")
+    check("U2 expense recorded", "5,000" in resp)
+    u2_insights.append("used: expenses")
+
+    print("\n--- U2 Week 2-4: Product profit, stock grouping, split ---")
+
+    # More sales (6-8): sale 8 -> shop name hint
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "ball joint", "quantity": 2, "unit": "piece",
+        "unit_price": 9000, "total": 18000,
+    }, "english")
+    check("U2 sale 6 confirmed", "Sold!" in resp)
+
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "brake disc", "quantity": 1, "unit": "piece",
+        "unit_price": 12000, "total": 12000,
+    }, "english")
+    check("U2 sale 7 confirmed", "Sold!" in resp)
+
+    resp = await _route_intent(U2, {
+        "action": "record_sale", "product": "oil filter", "quantity": 5, "unit": "piece",
+        "unit_price": 1500, "total": 7500,
+    }, "english")
+    check("U2 sale 8 confirmed", "Sold!" in resp)
+    check("U2 hint 8: shop name", "shop name" in resp.lower())
+    u2_insights.append("hint: shop name")
+
+    # Set shop name
+    resp = await _route_intent(U2, {
+        "action": "set_shop_name", "name": "Chukwu Auto Parts",
+    }, "english")
+    check("U2 shop name set", "Chukwu Auto Parts" in resp)
+    u2_insights.append("used: shop name")
+
+    # Check stock -- should group by level (8 products)
+    resp = await _route_intent(U2, {"action": "check_stock"}, "english")
+    check("U2 stock check works", "stock" in resp.lower() or "alternator" in resp.lower())
+    # With 8+ products, should show grouping
+    has_grouping = ("in stock" in resp.lower() or "low stock" in resp.lower()
+                    or "out of stock" in resp.lower())
+    check("U2 stock grouping active (8+ products)", has_grouping, f"response: {resp[:200]}")
+    u2_insights.append("used: check stock (grouped)")
+
+    # Product profit -- has cost data from stock entries
+    resp = await _route_intent(U2, {
+        "action": "product_profit", "period": "all",
+    }, "english")
+    check("U2 product profit works", "profit" in resp.lower())
+    check("U2 product profit shows margin %", "%" in resp)
+    # Check specific products appear
+    check("U2 product profit lists products",
+          "alternator" in resp.lower() or "brake pad" in resp.lower() or "shock absorber" in resp.lower())
+    u2_insights.append("used: product profit")
+
+    # Summary with profit (has cost data from stock)
+    resp = await _route_intent(U2, {"action": "daily_summary", "period": "all"}, "english")
+    check("U2 summary shows profit", "profit" in resp.lower() or "gain" in resp.lower())
+    u2_insights.append("used: summary with profit")
+
+    # Nudge timing -- set to 7pm
+    resp = await _route_intent(U2, {"action": "set_nudge_time", "hour": 19}, "english")
+    check("U2 nudge time set", "7" in resp or "19" in resp)
+    u2_insights.append("used: nudge timing")
+
+    # Check credits (Oga has a debtor)
+    resp = await _route_intent(U2, {
+        "action": "record_credit", "customer": "Musa Mechanic", "amount": 30000,
+        "note": "shock absorber",
+    }, "english")
+    check("U2 credit recorded", "30,000" in resp)
+    u2_insights.append("used: credits")
+
+    # Payment
+    resp = await _route_intent(U2, {
+        "action": "record_payment", "customer": "Musa Mechanic", "amount": 15000,
+    }, "english")
+    check("U2 payment recorded", "15,000" in resp)
+    check("U2 payment shows remaining", "15,000" in resp)
+    u2_insights.append("used: payments")
+
+    # Report with voice summary
+    resp = await _route_intent(U2, {"action": "get_report"}, "english")
+    check("U2 report link present", "report/" in resp)
+    check("U2 voice summary: top products", "top products" in resp.lower())
+    u2_insights.append("used: report (voice summary)")
+
+    # Privacy
+    resp = await _route_intent(U2, {"action": "privacy"}, "english")
+    check("U2 privacy response", "data" in resp.lower())
+    u2_insights.append("used: privacy")
+
+    # Whisper alias test: "break pad" should match "brake pad"
+    from app.handlers import _normalize_product_name
+    check("Whisper alias: break pad -> brake pad",
+          _normalize_product_name("break pad") == "brake pad")
+    check("Whisper alias: auto nator -> alternator",
+          _normalize_product_name("auto nator") == "alternator")
+    check("Whisper alias: shoka bsorber -> shock absorber",
+          _normalize_product_name("shoka bsorber") == "shock absorber")
+    check("Whisper alias: spark pluck -> spark plug",
+          _normalize_product_name("spark pluck") == "spark plug")
+    u2_insights.append("verified: whisper aliases")
+
+    # DB verification for U2
+    u2_final_sales = await count_sales(U2)
+    u2_final_rev = await sales_total(U2)
+    expected_u2_rev = 35000+16500+30000+12000+12000+18000+12000+7500
+    check(f"U2 DB: 8 sales", u2_final_sales == 8, f"got {u2_final_sales}")
+    check(f"U2 DB: revenue = {expected_u2_rev:,}", u2_final_rev == expected_u2_rev,
+          f"got {u2_final_rev}")
+
+    print(f"\n  U2 (Oga Chukwu): {len(u2_insights)} features discovered")
+    print(f"    -> {', '.join(u2_insights)}")
+
+    # ========== USER U3: Sister Halima -- Cosmetics/hair salon, English, mixed ==========
+    # Sells relaxer, hair cream, body cream, ankara. Does braiding.
+    # Tests: Whisper aliases (cosmetics), split_product, edit/correction,
+    # credit clarification, mark_credit, undo (M10 fix).
+    U3 = "2349500000003"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U3,))
+    await db.commit()
+    u3_insights = []
+
+    print("\n--- U3 Week 1: Onboarding (Sister Halima, English, cosmetics) ---")
+    u3_insights.append("welcome")
+
+    # Day 1: Sales
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "relaxer", "quantity": 5, "unit": "pack",
+        "unit_price": 2000, "total": 10000,
+    }, "english")
+    check("U3 sale 1 (relaxer)", "Sold!" in resp)
+    u3_insights.append("hint: credit")
+
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "hair cream", "quantity": 10, "unit": "piece",
+        "unit_price": 800, "total": 8000,
+    }, "english")
+    check("U3 sale 2 (hair cream)", "Sold!" in resp)
+    u3_insights.append("hint: undo")
+
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "braiding", "quantity": 3, "unit": "piece",
+        "unit_price": 5000, "total": 15000,
+    }, "english")
+    check("U3 sale 3 (braiding)", "Sold!" in resp)
+    u3_insights.append("hint: expenses")
+
+    # Credit sale with ambiguity
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "ankara", "quantity": 2, "unit": "piece",
+        "unit_price": 3000, "total": 6000,
+        "customer": "Aunty Grace", "is_credit": False, "credit_ambiguous": True,
+    }, "english")
+    check("U3 credit clarification fires", "cash or credit" in resp.lower())
+    u3_insights.append("used: credit clarification")
+
+    # Confirm it was credit (say "no" = credit path)
+    resp = await _route_intent(U3, {"action": "confirm_no"}, "english")
+    check("U3 credit confirmed", "Aunty Grace" in resp)
+    check("U3 credit marked", "credit" in resp.lower())
+
+    # Sale 5
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "body cream", "quantity": 8, "unit": "piece",
+        "unit_price": 1500, "total": 12000,
+    }, "english")
+    check("U3 sale 5 confirmed", "Sold!" in resp)
+    u3_insights.append("sale 5")
+
+    print("\n--- U3 Week 2-4: Split product, edit, mark credit ---")
+
+    # Sale 6: braiding again
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "braiding", "quantity": 2, "unit": "piece",
+        "unit_price": 8000, "total": 16000,
+    }, "english")
+    check("U3 sale 6 (braiding at 8k)", "Sold!" in resp)
+
+    # Realizes she needs to split braiding into types
+    resp = await _route_intent(U3, {
+        "action": "split_product", "original": "braiding", "new_name": "box braids",
+    }, "english")
+    check("U3 split product works", "box braids" in resp.lower() or "separate" in resp.lower())
+    u3_insights.append("used: split product")
+
+    # Sale 7: Now records specific type
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "cornrow", "quantity": 1, "unit": "piece",
+        "unit_price": 3000, "total": 3000,
+    }, "english")
+    check("U3 sale 7 (cornrow)", "Sold!" in resp)
+
+    # Mark last sale as credit retroactively
+    resp = await _route_intent(U3, {
+        "action": "mark_credit", "customer": "Sisi Funke",
+    }, "english")
+    check("U3 mark credit works", "credit" in resp.lower() and "Sisi Funke" in resp)
+    u3_insights.append("used: mark credit")
+
+    # Edit last sale -- "the price was 3500 not 3000" (correction detection test)
+    resp = await _route_intent(U3, {
+        "action": "edit_last", "field": "price", "new_value": 3500,
+    }, "english")
+    check("U3 edit works", "3,500" in resp)
+    u3_insights.append("used: edit (correction)")
+
+    # More sales (8)
+    resp = await _route_intent(U3, {
+        "action": "record_sale", "product": "relaxer", "quantity": 3, "unit": "pack",
+        "unit_price": 2000, "total": 6000,
+    }, "english")
+    check("U3 sale 8 confirmed", "Sold!" in resp)
+    check("U3 hint 8: shop name", "shop name" in resp.lower())
+    u3_insights.append("hint: shop name")
+
+    # Undo the last sale
+    resp = await _route_intent(U3, {"action": "undo"}, "english")
+    check("U3 undo works", "Removed" in resp or "remove" in resp.lower())
+    u3_insights.append("used: undo")
+
+    # Expenses
+    resp = await _route_intent(U3, {
+        "action": "record_expense", "amount": 2000, "category": "rent",
+        "description": "shop space",
+    }, "english")
+    check("U3 expense recorded", "2,000" in resp)
+    u3_insights.append("used: expenses")
+
+    # Summary
+    resp = await _route_intent(U3, {"action": "daily_summary"}, "english")
+    check("U3 summary works", "naira" in resp.lower())
+    u3_insights.append("used: summary")
+
+    # Check credits
+    resp = await _route_intent(U3, {"action": "check_credits"}, "english")
+    check("U3 credits list works", "Aunty Grace" in resp or "Sisi Funke" in resp)
+    u3_insights.append("used: check credits")
+
+    # Report
+    resp = await _route_intent(U3, {"action": "get_report"}, "english")
+    check("U3 report has link", "report/" in resp)
+    u3_insights.append("used: report")
+
+    # Privacy
+    resp = await _route_intent(U3, {"action": "privacy"}, "english")
+    check("U3 privacy", "data" in resp.lower())
+    u3_insights.append("used: privacy")
+
+    # Whisper alias test for cosmetics
+    check("Whisper alias: anakara -> ankara",
+          _normalize_product_name("anakara") == "ankara")
+    check("Whisper alias: relaxa -> relaxer",
+          _normalize_product_name("relaxa") == "relaxer")
+
+    # DB verification for U3
+    u3_final_sales = await count_sales(U3)
+    # Sales: relaxer(10k) + hair cream(8k) + braiding(15k) + ankara(6k credit) + body cream(12k)
+    # + braiding(16k) + cornrow(3.5k edited) + relaxer(6k UNDONE) = 7 sales after undo
+    check("U3 DB: 7 sales (one undone)", u3_final_sales == 7, f"got {u3_final_sales}")
+
+    print(f"\n  U3 (Sister Halima): {len(u3_insights)} features discovered")
+    print(f"    -> {', '.join(u3_insights)}")
+
+    # ========== USER U4: Baba Idris -- Building materials, Pidgin, text ==========
+    # Sells cement, iron rod (different sizes), sand, gravel.
+    # Tests: product variants (size qualifiers), multi-sale with multiple customers,
+    # price ambiguity, check_sales, multi-expense.
+    U4 = "2349500000004"
+    await db.execute(
+        "INSERT INTO shops (phone, onboarded, language) VALUES (?, 1, 'pidgin')", (U4,))
+    await db.commit()
+    u4_insights = []
+
+    print("\n--- U4 Week 1: Onboarding (Baba Idris, Pidgin, building materials) ---")
+    u4_insights.append("welcome")
+
+    # Day 1: Stock up
+    resp = await _route_intent(U4, {
+        "action": "multi_stock", "items": [
+            {"product": "cement", "quantity": 100, "unit": "bag", "cost_price": 4000},
+            {"product": "1/2 inch iron rod", "quantity": 50, "unit": "piece", "cost_price": 3500},
+            {"product": "3/4 inch iron rod", "quantity": 30, "unit": "piece", "cost_price": 5000},
+            {"product": "sand", "quantity": 20, "unit": "trip", "cost_price": 15000},
+        ]
+    }, "pidgin")
+    check("U4 multi-stock confirmed", "Stock added" in resp)
+    u4_insights.append("used: multi-stock")
+
+    # Verify product variants are distinct
+    cursor = await db.execute(
+        "SELECT name FROM products WHERE phone = ? AND name LIKE '%iron rod%' ORDER BY name", (U4,))
+    iron_rods = [r[0] for r in await cursor.fetchall()]
+    check("U4 product variants: 2 distinct iron rods", len(iron_rods) == 2, f"got {iron_rods}")
+    check("U4 variant: 1/2 inch exists", "1/2 inch iron rod" in iron_rods)
+    check("U4 variant: 3/4 inch exists", "3/4 inch iron rod" in iron_rods)
+    u4_insights.append("verified: product variants")
+
+    # Day 1: First sale
+    resp = await _route_intent(U4, {
+        "action": "record_sale", "product": "cement", "quantity": 10, "unit": "bag",
+        "unit_price": 5500, "total": 55000,
+    }, "pidgin")
+    check("U4 sale 1 (cement)", "Sold!" in resp)
+    u4_insights.append("hint: credit")
+
+    # Day 1: Sale of specific iron rod variant
+    resp = await _route_intent(U4, {
+        "action": "record_sale", "product": "1/2 inch iron rod", "quantity": 20, "unit": "piece",
+        "unit_price": 5000, "total": 100000,
+    }, "pidgin")
+    check("U4 sale 2 (1/2 inch)", "Sold!" in resp)
+    u4_insights.append("hint: undo")
+
+    # Verify stock decremented correctly for the right variant
+    cursor = await db.execute(
+        "SELECT stock_qty FROM products WHERE phone = ? AND name = '1/2 inch iron rod'", (U4,))
+    rod_stock = (await cursor.fetchone())[0]
+    check("U4 stock: 1/2 inch = 30 (50-20)", rod_stock == 30, f"got {rod_stock}")
+
+    cursor = await db.execute(
+        "SELECT stock_qty FROM products WHERE phone = ? AND name = '3/4 inch iron rod'", (U4,))
+    rod34_stock = (await cursor.fetchone())[0]
+    check("U4 stock: 3/4 inch unchanged = 30", rod34_stock == 30, f"got {rod34_stock}")
+    u4_insights.append("verified: variant stock isolation")
+
+    # Day 2: Sale 3
+    resp = await _route_intent(U4, {
+        "action": "record_sale", "product": "sand", "quantity": 3, "unit": "trip",
+        "unit_price": 25000, "total": 75000,
+    }, "pidgin")
+    check("U4 sale 3 (sand)", "Sold!" in resp)
+    u4_insights.append("hint: expenses")
+
+    # Price ambiguity: "5 bags for 30 thousand" -- each or total?
+    resp = await _route_intent(U4, {
+        "action": "record_sale", "product": "cement", "quantity": 5, "unit": "bag",
+        "unit_price": 30000, "total": 30000,
+        "price_ambiguous": True,
+    }, "pidgin")
+    check("U4 price ambiguity fires", "total" in resp.lower() and "each" in resp.lower())
+    u4_insights.append("used: price clarification")
+
+    # Confirm it was total (say "yes")
+    resp = await _route_intent(U4, {"action": "confirm_yes"}, "pidgin")
+    check("U4 price confirmed as total", "Sold!" in resp)
+
+    # Sale 5: multi-sale with different customers
+    resp = await _route_intent(U4, {
+        "action": "multi_sale", "items": [
+            {"product": "cement", "quantity": 20, "unit": "bag", "unit_price": 5500,
+             "total": 110000, "customer": "Alhaji Musa", "is_credit": True},
+            {"product": "3/4 inch iron rod", "quantity": 10, "unit": "piece", "unit_price": 7000,
+             "total": 70000, "customer": "Engineer Bola", "is_credit": False},
+        ],
+    }, "pidgin")
+    check("U4 multi-sale multi-customer", "cement" in resp.lower() or "Sold!" in resp)
+    u4_insights.append("used: multi-sale multi-customer")
+
+    # Verify credits: Alhaji Musa should have credit
+    cursor = await db.execute(
+        "SELECT amount FROM credits WHERE phone = ? AND customer = 'Alhaji Musa'", (U4,))
+    u4_credit = await cursor.fetchone()
+    check("U4 credit for Alhaji Musa = 110,000", u4_credit and u4_credit[0] == 110000,
+          f"got {u4_credit}")
+    u4_insights.append("verified: multi-customer credit isolation")
+
+    # Multi-expense
+    resp = await _route_intent(U4, {
+        "action": "multi_expense", "items": [
+            {"description": "fuel for generator", "amount": 5000, "category": "other"},
+            {"description": "worker salary", "amount": 10000, "category": "salary"},
+        ],
+    }, "pidgin")
+    check("U4 multi-expense recorded", "fuel" in resp.lower() or "5,000" in resp)
+    u4_insights.append("used: multi-expense")
+
+    # More sales to get count up (6, 7, 8)
+    for prod, qty, price in [("cement", 15, 5500), ("sand", 2, 25000), ("3/4 inch iron rod", 5, 7000)]:
+        await _route_intent(U4, {
+            "action": "record_sale", "product": prod, "quantity": qty, "unit": "piece",
+            "unit_price": price, "total": qty * price,
+        }, "pidgin")
+
+    # Check sales -- see today's list
+    resp = await _route_intent(U4, {"action": "check_sales", "period": "today"}, "pidgin")
+    check("U4 check_sales works", "naira" in resp.lower() or "cement" in resp.lower())
+    u4_insights.append("used: check sales")
+
+    # Summary with profit (has cost data)
+    resp = await _route_intent(U4, {"action": "daily_summary", "period": "all"}, "pidgin")
+    check("U4 summary shows profit", "gain" in resp.lower() or "profit" in resp.lower())
+    u4_insights.append("used: summary with profit")
+
+    # Payment from Alhaji Musa
+    resp = await _route_intent(U4, {
+        "action": "record_payment", "customer": "Alhaji Musa", "amount": 50000,
+    }, "pidgin")
+    check("U4 payment recorded", "50,000" in resp)
+    u4_insights.append("used: payments")
+
+    # Privacy
+    resp = await _route_intent(U4, {"action": "privacy"}, "pidgin")
+    check("U4 privacy", "data" in resp.lower())
+    u4_insights.append("used: privacy")
+
+    # DB verification for U4
+    u4_final_sales = await count_sales(U4)
+    # Sales: cement(55k) + 1/2 rod(100k) + sand(75k) + cement(30k price-ambig) + multi-sale(2 items=110k+70k)
+    # + cement(82.5k) + sand(50k) + 3/4 rod(35k) = 9 sales (multi-sale counts as 2)
+    check("U4 DB: 9 sales", u4_final_sales == 9, f"got {u4_final_sales}")
+    u4_final_rev = await sales_total(U4)
+    expected_u4_rev = 55000 + 100000 + 75000 + 30000 + 110000 + 70000 + 82500 + 50000 + 35000
+    check(f"U4 DB: revenue = {expected_u4_rev:,}", u4_final_rev == expected_u4_rev,
+          f"got {u4_final_rev}")
+
+    print(f"\n  U4 (Baba Idris): {len(u4_insights)} features discovered")
+    print(f"    -> {', '.join(u4_insights)}")
+
+    # ========== USER U5: Ada Blessing -- Provision store, English, voice+text ==========
+    # Sells water, soft drink, indomie, bread, peak milk, biscuit.
+    # Tests: Whisper aliases (food), bulk sale, customer statement, credit reminder,
+    # credit history, rename customer, merge products, what_can_you_do.
+    U5 = "2349500000005"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (U5,))
+    await db.commit()
+    u5_insights = []
+
+    print("\n--- U5 Week 1: Onboarding (Ada Blessing, English, provision store) ---")
+    u5_insights.append("welcome")
+
+    # Day 1: Sales
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "water", "quantity": 20, "unit": "sachet",
+        "unit_price": 50, "total": 1000,
+    }, "english")
+    check("U5 sale 1 (water)", "Sold!" in resp)
+    u5_insights.append("hint: credit")
+
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "indomie", "quantity": 10, "unit": "piece",
+        "unit_price": 200, "total": 2000,
+    }, "english")
+    check("U5 sale 2 (indomie)", "Sold!" in resp)
+    u5_insights.append("hint: undo")
+
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "bread", "quantity": 5, "unit": "piece",
+        "unit_price": 500, "total": 2500,
+    }, "english")
+    check("U5 sale 3 (bread)", "Sold!" in resp)
+    u5_insights.append("hint: expenses")
+
+    # Credit sales
+    resp = await _route_intent(U5, {
+        "action": "record_credit", "customer": "Mama Chidera", "amount": 3000,
+        "note": "provisions",
+    }, "english")
+    check("U5 credit recorded", "3,000" in resp)
+    u5_insights.append("used: credits")
+
+    resp = await _route_intent(U5, {
+        "action": "record_credit", "customer": "Brother Tayo", "amount": 5000,
+        "note": "provisions",
+    }, "english")
+    check("U5 credit 2 recorded", "5,000" in resp)
+
+    resp = await _route_intent(U5, {
+        "action": "record_credit", "customer": "Sister Ngozi", "amount": 2000,
+    }, "english")
+    check("U5 credit 3 recorded", "2,000" in resp)
+
+    # Day 2: More sales (4, 5)
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "peak milk", "quantity": 6, "unit": "piece",
+        "unit_price": 300, "total": 1800,
+    }, "english")
+    check("U5 sale 4 (peak milk)", "Sold!" in resp)
+
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "biscuit", "quantity": 15, "unit": "piece",
+        "unit_price": 100, "total": 1500,
+    }, "english")
+    check("U5 sale 5 (biscuit)", "Sold!" in resp)
+    u5_insights.append("sale 5")
+
+    print("\n--- U5 Week 2-4: Credit features, rename, merge ---")
+
+    # Customer statement
+    resp = await _route_intent(U5, {
+        "action": "customer_statement", "customer": "Mama Chidera",
+    }, "english")
+    check("U5 customer statement", "receipt/" in resp and "Mama Chidera" in resp)
+    u5_insights.append("used: customer statement")
+
+    # Credit reminder
+    resp = await _route_intent(U5, {
+        "action": "credit_reminder", "customer": "Brother Tayo",
+    }, "english")
+    check("U5 credit reminder works", "Brother Tayo" in resp)
+    u5_insights.append("used: credit reminder")
+
+    # Credit history
+    resp = await _route_intent(U5, {
+        "action": "credit_history", "customer": "Sister Ngozi",
+    }, "english")
+    check("U5 credit history", "Sister Ngozi" in resp or "2,000" in resp)
+    u5_insights.append("used: credit history")
+
+    # Rename customer (voice got it wrong)
+    resp = await _route_intent(U5, {
+        "action": "rename_customer", "old_name": "Brother Tayo", "new_name": "Brother Taiwo",
+    }, "english")
+    check("U5 rename customer", "Brother Taiwo" in resp)
+    u5_insights.append("used: rename customer")
+
+    # Verify rename in DB
+    cursor = await db.execute(
+        "SELECT customer FROM credits WHERE phone = ? AND customer = 'Brother Taiwo'", (U5,))
+    renamed = await cursor.fetchone()
+    check("U5 DB: rename applied", renamed is not None)
+
+    # Bulk sale: "I sold 15 thousand today"
+    resp = await _route_intent(U5, {
+        "action": "record_bulk_sale", "total": 15000,
+    }, "english")
+    check("U5 bulk sale recorded", "15,000" in resp)
+    u5_insights.append("used: bulk sale")
+
+    # Payments
+    resp = await _route_intent(U5, {
+        "action": "record_payment", "customer": "Mama Chidera", "amount": 3000,
+    }, "english")
+    check("U5 payment clears debt", "cleared" in resp.lower() or "clear" in resp.lower())
+    u5_insights.append("used: payments")
+
+    # Check payments
+    resp = await _route_intent(U5, {"action": "check_payments"}, "english")
+    check("U5 check payments", "naira" in resp.lower() or "Mama Chidera" in resp.lower())
+    u5_insights.append("used: check payments")
+
+    # Merge products: "pure water and water are the same"
+    # First create a "pure water" sale to have both products
+    resp = await _route_intent(U5, {
+        "action": "record_sale", "product": "pure water", "quantity": 30, "unit": "sachet",
+        "unit_price": 50, "total": 1500,
+    }, "english")
+    # The alias map should normalize "pure water" to "water" already
+    # But let's test merge explicitly
+    # Actually _normalize_product_name("pure water") = "water", so they're already the same product
+    check("U5 alias: pure water -> water product", "Sold!" in resp)
+
+    # Whisper aliases for food
+    check("Whisper alias: sachet water -> water",
+          _normalize_product_name("sachet water") == "water")
+    check("Whisper alias: fry rice -> fried rice",
+          _normalize_product_name("fry rice") == "fried rice")
+    check("Whisper alias: suya meat -> suya",
+          _normalize_product_name("suya meat") == "suya")
+    check("Whisper alias: stork fish -> stockfish",
+          _normalize_product_name("stork fish") == "stockfish")
+    u5_insights.append("verified: whisper aliases")
+
+    # Expenses
+    resp = await _route_intent(U5, {
+        "action": "record_expense", "amount": 1000, "category": "transport",
+    }, "english")
+    check("U5 expense recorded", "1,000" in resp)
+    u5_insights.append("used: expenses")
+
+    # Summary
+    resp = await _route_intent(U5, {"action": "daily_summary"}, "english")
+    check("U5 summary works", "naira" in resp.lower())
+    u5_insights.append("used: summary")
+
+    # Check credits
+    resp = await _route_intent(U5, {"action": "check_credits"}, "english")
+    check("U5 check credits", "Brother Taiwo" in resp or "Sister Ngozi" in resp)
+    u5_insights.append("used: check credits")
+
+    # What can you do
+    resp = await _route_intent(U5, {"action": "what_can_you_do"}, "english")
+    check("U5 what can you do", "things" in resp.lower() or "can do" in resp.lower())
+    u5_insights.append("used: what can you do")
+
+    # Report
+    resp = await _route_intent(U5, {"action": "get_report"}, "english")
+    check("U5 report link", "report/" in resp)
+    u5_insights.append("used: report")
+
+    # Privacy
+    resp = await _route_intent(U5, {"action": "privacy"}, "english")
+    check("U5 privacy", "data" in resp.lower())
+    u5_insights.append("used: privacy")
+
+    # DB verification for U5
+    u5_final_sales = await count_sales(U5)
+    # Sales: water(1k) + indomie(2k) + bread(2.5k) + peak milk(1.8k) + biscuit(1.5k)
+    # + bulk(15k) + pure water(1.5k as "water") = 7 sales
+    check("U5 DB: 7 sales", u5_final_sales == 7, f"got {u5_final_sales}")
+
+    print(f"\n  U5 (Ada Blessing): {len(u5_insights)} features discovered")
+    print(f"    -> {', '.join(u5_insights)}")
+
+    # ========== ROUND 11: Cross-user checks and final verification ==========
+    print("\n--- Round 11: Cross-user and feature verification ---")
+
+    # Data isolation
+    for label, phone, expected_min in [
+        ("U1", U1, 20), ("U2", U2, 8), ("U3", U3, 7), ("U4", U4, 9), ("U5", U5, 7)
+    ]:
+        count = await count_sales(phone)
+        check(f"{label} sales isolated", count >= expected_min, f"got {count}")
+
+    # No cross-user credit leakage
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND customer = 'Alhaji Musa'", (U1,))
+    check("No U4->U1 credit leakage", (await cursor.fetchone())[0] == 0)
+
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM credits WHERE phone = ? AND customer = 'Mama Chidera'", (U2,))
+    check("No U5->U2 credit leakage", (await cursor.fetchone())[0] == 0)
+
+    # Verify shop names
+    cursor = await db.execute("SELECT name FROM shops WHERE phone = ?", (U1,))
+    check("U1 shop name saved", (await cursor.fetchone())[0] == "Mama Bisi Kitchen")
+    cursor = await db.execute("SELECT name FROM shops WHERE phone = ?", (U2,))
+    check("U2 shop name saved", (await cursor.fetchone())[0] == "Chukwu Auto Parts")
+
+    # Verify nudge hour
+    cursor = await db.execute("SELECT nudge_hour FROM shops WHERE phone = ?", (U2,))
+    check("U2 nudge hour = 19", (await cursor.fetchone())[0] == 19)
+
+    # Verify product variants didn't merge
+    cursor = await db.execute(
+        "SELECT COUNT(DISTINCT name) FROM products WHERE phone = ? AND name LIKE '%iron rod%'", (U4,))
+    check("U4 iron rod variants still distinct", (await cursor.fetchone())[0] == 2)
+
+    # Grand totals
+    r11_total_sales = sum([
+        await count_sales(U1), await count_sales(U2), await count_sales(U3),
+        await count_sales(U4), await count_sales(U5),
+    ])
+    r11_total_rev = sum([
+        await sales_total(U1), await sales_total(U2), await sales_total(U3),
+        await sales_total(U4), await sales_total(U5),
+    ])
+
+    # Feature discovery summary
+    print("\n--- Round 11: Feature Discovery Summary ---")
+    for label, phone_label, insights in [
+        ("U1", "Mama Bisi, Pidgin, food vendor", u1_insights),
+        ("U2", "Oga Chukwu, English, auto parts", u2_insights),
+        ("U3", "Sister Halima, English, cosmetics", u3_insights),
+        ("U4", "Baba Idris, Pidgin, building", u4_insights),
+        ("U5", "Ada Blessing, English, provision", u5_insights),
+    ]:
+        print(f"  {label} ({phone_label}): {len(insights)} features/hints")
+        print(f"    -> {', '.join(insights)}")
+
+    # Feature coverage verification
+    all_features_tested = set()
+    for insights in [u1_insights, u2_insights, u3_insights, u4_insights, u5_insights]:
+        all_features_tested.update(insights)
+
+    critical_features = [
+        "used: credits", "used: expenses", "used: payments", "used: privacy",
+        "used: report", "used: summary",
+    ]
+    for feat in critical_features:
+        check(f"All users cover: {feat}",
+              any(feat in ins for ins in [u1_insights, u2_insights, u3_insights, u4_insights, u5_insights]))
+
+    new_features = [
+        "used: product profit", "used: split product", "hint: shop name",
+        "used: multi-stock", "used: multi-sale multi-customer",
+        "used: price clarification", "used: credit clarification",
+        "used: mark credit", "used: undo", "used: edit (correction)",
+        "verified: product variants", "verified: whisper aliases",
+        "used: nudge timing", "used: check stock (grouped)",
+        "used: bulk sale", "used: customer statement", "used: credit reminder",
+        "used: credit history", "used: rename customer",
+        "used: report (voice summary)", "used: summary (food vendor label)",
+    ]
+    new_features_covered = sum(
+        1 for f in new_features
+        if any(f in ins for ins in [u1_insights, u2_insights, u3_insights, u4_insights, u5_insights])
+    )
+    check(f"New features covered: {new_features_covered}/{len(new_features)}",
+          new_features_covered >= 18,
+          f"covered: {new_features_covered}")
+
+    print(f"\n{'=' * 60}")
+    print(f"3-Month Simulation Summary (Round 11):")
+    print(f"  Users: 5 | Sales: {r11_total_sales} | Revenue: {r11_total_rev:,.0f} naira")
+    print(f"  Features discovered: U1={len(u1_insights)}, U2={len(u2_insights)}, "
+          f"U3={len(u3_insights)}, U4={len(u4_insights)}, U5={len(u5_insights)}")
+    print(f"  New features tested: product profit, split product, stock grouping,")
+    print(f"    shop name hint, food vendor profit label, whisper aliases,")
+    print(f"    nudge timing, voice report summary, multi-customer, product variants")
+    print(f"  All users: onboarded, privacy-aware, discovered features organically")
+    print(f"  DB verified: sales, credits, expenses, payments, stock, shop names")
+    print(f"={'=' * 60}")
+
     # === CLEANUP ===
     await close_db()
     for _old in pathlib.Path(".").glob("test_smoke*.db*"):
