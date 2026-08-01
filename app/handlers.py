@@ -242,6 +242,8 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     unit = data.get("unit") or "piece"
     cost_price = float(data.get("cost_price", 0))
 
+    supplier = (data.get("supplier") or "").strip() or None
+
     product_id = await _get_or_create_product(db, phone, product, unit, 0, cost_price)
 
     # Update stock
@@ -252,9 +254,9 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
 
     # Record entry
     await db.execute(
-        """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type)
-           VALUES (?, ?, ?, ?, ?, 'purchase')""",
-        (phone, product_id, product, quantity, cost_price),
+        """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type, supplier)
+           VALUES (?, ?, ?, ?, ?, 'purchase', ?)""",
+        (phone, product_id, product, quantity, cost_price, supplier),
     )
     await db.commit()
 
@@ -263,10 +265,16 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
         total_cost = cost_price * quantity
         price_note = f" Cost: {_fmt(total_cost)} naira ({_fmt(cost_price)} each)."
 
+    supplier_note = ""
+    if supplier:
+        supplier_note = f" (from {supplier})"
+
     result = get_response(
         "stock_added", lang,
         quantity=_fmt(quantity), unit=unit, product=product, price_note=price_note,
     )
+    if supplier_note:
+        result = result.rstrip() + supplier_note
 
     # One contextual nudge — if no selling price is set, that's the natural next step
     sell_price = (await (await db.execute(
@@ -1044,8 +1052,14 @@ async def handle_get_report(phone: str, data: dict, lang: str) -> str:
 
     db = await get_db()
     token = await get_or_create_report_token(phone)
-    url = f"{BASE_URL.rstrip('/')}/report/{token}"
+    base = BASE_URL.rstrip('/')
+    url = f"{base}/report/{token}"
+    export_url = f"{base}/export/{token}"
     result = get_response("report_link", lang, url=url)
+    if lang == "pidgin":
+        result += f"\n\nDownload your data (CSV): {export_url}"
+    else:
+        result += f"\n\nDownload your data (CSV): {export_url}"
 
     # Voice-friendly summary: top 3 products this month so voice-only users get value
     cursor = await db.execute(
@@ -1732,6 +1746,9 @@ async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:
     if not items:
         return get_response("not_understood", lang)
 
+    # Top-level supplier applies to all items unless individual items override
+    top_supplier = (data.get("supplier") or "").strip() or None
+
     results = []
     total_cost = 0
     for item in items:
@@ -1739,6 +1756,7 @@ async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:
         quantity = float(item.get("quantity", 1))
         unit = item.get("unit") or "piece"
         cost_price = float(item.get("cost_price", 0))
+        supplier = (item.get("supplier") or "").strip() or top_supplier
 
         product_id = await _get_or_create_product(db, phone, product, unit, 0, cost_price)
 
@@ -1747,9 +1765,9 @@ async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:
             (quantity, cost_price, cost_price, product_id),
         )
         await db.execute(
-            """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type)
-               VALUES (?, ?, ?, ?, ?, 'purchase')""",
-            (phone, product_id, product, quantity, cost_price),
+            """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type, supplier)
+               VALUES (?, ?, ?, ?, ?, 'purchase', ?)""",
+            (phone, product_id, product, quantity, cost_price, supplier),
         )
 
         line = f"  {_fmt(quantity)} {unit} {product}"
@@ -1763,9 +1781,10 @@ async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:
 
     stock_list = "\n".join(results)
     cost_note = f"\n\nTotal cost: {_fmt(total_cost)} naira" if total_cost > 0 else ""
+    supplier_note = f"\nSupplier: {top_supplier}" if top_supplier else ""
     if lang == "pidgin":
-        return f"Stock added!\n{stock_list}{cost_note}"
-    return f"Stock added!\n{stock_list}{cost_note}"
+        return f"Stock added!\n{stock_list}{cost_note}{supplier_note}"
+    return f"Stock added!\n{stock_list}{cost_note}{supplier_note}"
 
 
 async def handle_multi_sale(phone: str, data: dict, lang: str) -> str:
@@ -2390,3 +2409,162 @@ async def _get_discovery_hint(db, phone, lang):
             return get_response("hint_discover_receipt", lang, customer=row[0])
 
     return ""
+
+
+async def handle_customer_sales(phone: str, data: dict, lang: str) -> str:
+    """Show total purchases by a specific customer (cash + credit)."""
+    db = await get_db()
+    customer = data.get("customer", "").strip()
+    if not customer:
+        if lang == "pidgin":
+            return "Which customer you wan check? Tell me like \"how much Mama Joy buy from me?\""
+        return "Which customer? Tell me like \"how much has Mama Joy bought from me?\""
+
+    period = data.get("period", "all")
+    if period == "week":
+        date_filter = "AND s.created_at >= datetime('now', '+1 hours', '-7 days')"
+        period_label = "this week"
+    elif period == "month":
+        date_filter = "AND s.created_at >= datetime('now', '+1 hours', '-30 days')"
+        period_label = "this month"
+    elif period == "today":
+        date_filter = "AND date(s.created_at) = date('now', '+1 hours')"
+        period_label = "today"
+    else:
+        date_filter = ""
+        period_label = "all time"
+
+    # Find customer (fuzzy match)
+    customer_match = await _find_similar_customer(db, phone, customer)
+    if customer_match:
+        matched_name, match_type = customer_match
+        if match_type == "exact":
+            customer = matched_name
+
+    # Total sales to this customer
+    cursor = await db.execute(
+        f"""SELECT COUNT(*), COALESCE(SUM(s.total), 0)
+            FROM sales s
+            WHERE s.phone = ? AND LOWER(s.customer) = LOWER(?) {date_filter}""",
+        (phone, customer),
+    )
+    row = await cursor.fetchone()
+    sale_count, sale_total = int(row[0]), row[1]
+
+    # Top products bought
+    cursor = await db.execute(
+        f"""SELECT s.product_name, SUM(s.quantity), SUM(s.total)
+            FROM sales s
+            WHERE s.phone = ? AND LOWER(s.customer) = LOWER(?) {date_filter}
+            GROUP BY s.product_name ORDER BY SUM(s.total) DESC LIMIT 5""",
+        (phone, customer),
+    )
+    products = await cursor.fetchall()
+
+    # Outstanding credit
+    cursor = await db.execute(
+        "SELECT COALESCE(SUM(amount - paid), 0) FROM credits WHERE phone = ? AND LOWER(customer) = LOWER(?) AND settled = 0",
+        (phone, customer),
+    )
+    outstanding = (await cursor.fetchone())[0]
+
+    if sale_count == 0 and outstanding == 0:
+        if lang == "pidgin":
+            return f"I no see any record for {customer}."
+        return f"No records found for {customer}."
+
+    # Build response
+    if lang == "pidgin":
+        result = f"{customer} ({period_label}):\n"
+    else:
+        result = f"{customer} ({period_label}):\n"
+
+    if sale_count > 0:
+        result += f"  Total purchases: {_fmt(sale_total)} naira ({sale_count} transactions)\n"
+        if products:
+            result += "  Products:\n"
+            for p in products:
+                result += f"    {p[0]}: {_fmt(p[1])} units = {_fmt(p[2])} naira\n"
+
+    if outstanding > 0:
+        result += f"  Outstanding credit: {_fmt(outstanding)} naira"
+
+    return result.rstrip()
+
+
+async def handle_compare_months(phone: str, data: dict, lang: str) -> str:
+    """Side-by-side comparison of this month vs last month."""
+    db = await get_db()
+
+    this_month = "created_at >= datetime('now', '+1 hours', 'start of month')"
+    last_month = "created_at >= datetime('now', '+1 hours', 'start of month', '-1 month') AND created_at < datetime('now', '+1 hours', 'start of month')"
+
+    async def _period_stats(date_filter):
+        cursor = await db.execute(
+            f"SELECT COUNT(*), COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {date_filter}",
+            (phone,),
+        )
+        row = await cursor.fetchone()
+        sales_count, sales_total = int(row[0]), row[1]
+
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM expenses WHERE phone = ? AND {date_filter}",
+            (phone,),
+        )
+        expenses = (await cursor.fetchone())[0]
+
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM credits WHERE phone = ? AND {date_filter}",
+            (phone,),
+        )
+        credits = (await cursor.fetchone())[0]
+
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(amount), 0) FROM payments WHERE phone = ? AND {date_filter}",
+            (phone,),
+        )
+        payments = (await cursor.fetchone())[0]
+
+        return {
+            "sales_count": sales_count,
+            "sales_total": sales_total,
+            "expenses": expenses,
+            "credits": credits,
+            "payments": payments,
+        }
+
+    this = await _period_stats(this_month)
+    last = await _period_stats(last_month)
+
+    if this["sales_count"] == 0 and last["sales_count"] == 0:
+        return get_response("no_activity", lang)
+
+    def _arrow(current, previous):
+        if previous == 0:
+            return ""
+        pct = ((current - previous) / previous) * 100
+        if pct > 0:
+            return f" (+{pct:.0f}%)"
+        elif pct < 0:
+            return f" ({pct:.0f}%)"
+        return " (same)"
+
+    result = "This month vs Last month:\n\n"
+    result += f"Sales: {_fmt(this['sales_total'])} naira vs {_fmt(last['sales_total'])} naira{_arrow(this['sales_total'], last['sales_total'])}\n"
+    result += f"Transactions: {this['sales_count']} vs {last['sales_count']}{_arrow(this['sales_count'], last['sales_count'])}\n"
+
+    if this["expenses"] > 0 or last["expenses"] > 0:
+        result += f"Expenses: {_fmt(this['expenses'])} naira vs {_fmt(last['expenses'])} naira{_arrow(this['expenses'], last['expenses'])}\n"
+
+    if this["credits"] > 0 or last["credits"] > 0:
+        result += f"Credit given: {_fmt(this['credits'])} naira vs {_fmt(last['credits'])} naira\n"
+
+    if this["payments"] > 0 or last["payments"] > 0:
+        result += f"Payments received: {_fmt(this['payments'])} naira vs {_fmt(last['payments'])} naira\n"
+
+    # Net cash flow
+    this_net = this["sales_total"] - this["credits"] + this["payments"] - this["expenses"]
+    last_net = last["sales_total"] - last["credits"] + last["payments"] - last["expenses"]
+    result += f"\nNet cash: {_fmt(this_net)} naira vs {_fmt(last_net)} naira{_arrow(this_net, last_net)}"
+
+    return result

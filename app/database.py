@@ -75,6 +75,11 @@ class SQLiteDatabase:
             await self.commit()
         except Exception:
             pass  # Column already exists
+        try:
+            await self.execute("ALTER TABLE stock_entries ADD COLUMN supplier TEXT")
+            await self.commit()
+        except Exception:
+            pass  # Column already exists
 
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
@@ -160,6 +165,10 @@ class PostgresDatabase:
             pass  # Column already exists
         try:
             await self._execute("ALTER TABLE shops ADD COLUMN nudge_hour INTEGER DEFAULT 20", ())
+        except Exception:
+            pass  # Column already exists
+        try:
+            await self._execute("ALTER TABLE stock_entries ADD COLUMN supplier TEXT", ())
         except Exception:
             pass  # Column already exists
 
@@ -311,6 +320,7 @@ CREATE TABLE IF NOT EXISTS stock_entries (
     quantity    REAL NOT NULL,
     cost_price  REAL DEFAULT 0,
     entry_type  TEXT DEFAULT 'purchase',
+    supplier    TEXT,
     created_at  TEXT DEFAULT (datetime('now', '+1 hours')),
     FOREIGN KEY (phone) REFERENCES shops(phone),
     FOREIGN KEY (product_id) REFERENCES products(id)
@@ -437,6 +447,7 @@ CREATE TABLE IF NOT EXISTS stock_entries (
     quantity     DOUBLE PRECISION NOT NULL,
     cost_price   DOUBLE PRECISION DEFAULT 0,
     entry_type   TEXT DEFAULT 'purchase',
+    supplier     TEXT,
     created_at   TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
 );
 

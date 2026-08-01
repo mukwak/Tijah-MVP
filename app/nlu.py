@@ -20,7 +20,8 @@ ACTIONS you can return:
    {"action": "record_sale", "product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000, "customer": null, "is_credit": false, "when": "today"}
 
 2. ADD_STOCK - User bought/received stock
-   {"action": "add_stock", "product": "cement", "quantity": 10, "unit": "bag", "cost_price": 3000}
+   {"action": "add_stock", "product": "cement", "quantity": 10, "unit": "bag", "cost_price": 3000, "supplier": null}
+   supplier is optional — include ONLY if the user mentions who they bought from: "I bought cement from Dangote depot", "I buy rice from Alhaji Sule"
 
 3. RECORD_CREDIT - Someone owes the user money (bought on credit)
    {"action": "record_credit", "customer": "Mama Joy", "amount": 5000, "product": "rice", "note": "3 bags of rice"}
@@ -167,7 +168,8 @@ ACTIONS you can return:
     {"action": "multi_stock", "items": [
       {"product": "phone case", "quantity": 50, "unit": "piece", "cost_price": 500},
       {"product": "charger", "quantity": 30, "unit": "piece", "cost_price": 1000}
-    ]}
+    ], "supplier": null}
+    supplier is optional — if the user says who they bought from, include it at the top level.
     IMPORTANT: Only use multi_stock when there are 2+ DIFFERENT products being restocked. If it's just one product, use add_stock.
     Triggers: "I bought 50 phone case, 30 charger, 20 power bank", "I restock 10 bag cement and 5 bag rice"
 
@@ -198,6 +200,16 @@ ACTIONS you can return:
     {"action": "product_profit", "period": "month"}
     period: "today", "week", "month", "all"
     Triggers: "which product makes me the most money", "my most profitable product", "profit per product", "which item gives me the most gain", "wetin dey bring the most money"
+
+36. CUSTOMER_SALES - User wants to know total purchases by a specific customer (not just credit)
+    {"action": "customer_sales", "customer": "Alhaji Musa", "period": "month"}
+    period: "today", "week", "month", "all"
+    Triggers: "how much has Alhaji Musa bought from me", "Alhaji Musa total purchases", "what has Mama Joy bought", "how much did Alhaji Musa spend in my shop"
+    This is different from check_credits (which shows debt). customer_sales shows ALL purchases (cash + credit).
+
+37. COMPARE_MONTHS - User wants a side-by-side comparison of this month vs last month
+    {"action": "compare_months"}
+    Triggers: "compare this month to last month", "how does this month compare", "this month vs last month", "month over month", "compare months"
 
 33. SET_NUDGE_TIME - User wants to change when they receive their evening summary
     {"action": "set_nudge_time", "hour": 19}
@@ -279,6 +291,60 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
 
     try:
         async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+            result_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            return _parse_json_lenient(result_text)
+    except Exception as e:
+        return {"action": "help", "error": str(e)}
+
+
+IMAGE_PROMPT = """You are Tijah, a shop assistant. The user sent a photo of a handwritten receipt or sales record.
+
+Extract ALL sales/items you can read from the image. Return a JSON object:
+{"action": "multi_sale", "items": [
+  {"product": "rice", "quantity": 3, "unit": "bag", "unit_price": 5000, "total": 15000},
+  ...
+], "detected_language": "english"}
+
+Rules:
+- Extract every product, quantity, and price you can read
+- If only one item, use {"action": "record_sale", "product": ..., "quantity": ..., "unit_price": ..., "total": ...}
+- If you can't read any sales data, return {"action": "help", "error": "could not read image"}
+- Use lowercase product names
+- Calculate totals if not written
+- Include "detected_language" based on any text in the image
+
+Return ONLY valid JSON."""
+
+
+async def parse_image_intent(image_bytes: bytes, language: str = "english") -> dict:
+    """Parse a photo (e.g. handwritten receipt) using Gemini Vision."""
+    import base64
+    if not GEMINI_API_KEY:
+        return {"action": "help", "error": "GOOGLE_AI_API_KEY not configured"}
+
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
+
+    payload = {
+        "contents": [{
+            "role": "user",
+            "parts": [
+                {"text": f"{IMAGE_PROMPT}\n\n[Language: {language}]"},
+                {"inline_data": {"mime_type": "image/jpeg", "data": b64}},
+            ],
+        }],
+        "generationConfig": {
+            "temperature": 0.1,
+            "maxOutputTokens": 1000,
+            "responseMimeType": "application/json",
+        },
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()

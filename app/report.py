@@ -1,6 +1,8 @@
 """Shareable web report: each shop gets a tokenized link showing all their data.
 Also handles per-customer receipt pages for credit disputes."""
+import csv
 import html
+import io
 import secrets
 
 from app.database import get_db
@@ -381,3 +383,67 @@ async def render_customer_receipt_html(phone: str, customer: str) -> str:
 <footer>Powered by Tijah &middot; {_e(shop_name)} &middot; <a href="/privacy" style="color:#999">Privacy</a></footer>
 </body>
 </html>"""
+
+
+async def generate_csv_export(phone: str) -> str:
+    """Generate a CSV export of all shop data (sales, expenses, credits, payments, stock)."""
+    db = await get_db()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+
+    # Sales
+    writer.writerow(["=== SALES ==="])
+    writer.writerow(["Date", "Product", "Quantity", "Unit Price", "Total", "Customer", "Credit"])
+    cursor = await db.execute(
+        """SELECT created_at, product_name, quantity, unit_price, total, customer, is_credit
+           FROM sales WHERE phone = ? ORDER BY created_at DESC""", (phone,))
+    for row in await cursor.fetchall():
+        writer.writerow([str(row[0])[:16], row[1], row[2], row[3], row[4], row[5] or "", "Yes" if row[6] else "No"])
+
+    writer.writerow([])
+
+    # Expenses
+    writer.writerow(["=== EXPENSES ==="])
+    writer.writerow(["Date", "Description", "Category", "Amount"])
+    cursor = await db.execute(
+        """SELECT created_at, description, category, amount
+           FROM expenses WHERE phone = ? ORDER BY created_at DESC""", (phone,))
+    for row in await cursor.fetchall():
+        writer.writerow([str(row[0])[:16], row[1], row[2], row[3]])
+
+    writer.writerow([])
+
+    # Credits
+    writer.writerow(["=== CREDITS ==="])
+    writer.writerow(["Date", "Customer", "Amount", "Paid", "Outstanding", "Settled"])
+    cursor = await db.execute(
+        """SELECT created_at, customer, amount, paid, settled
+           FROM credits WHERE phone = ? ORDER BY created_at DESC""", (phone,))
+    for row in await cursor.fetchall():
+        outstanding = float(row[2]) - float(row[3] or 0)
+        writer.writerow([str(row[0])[:16], row[1], row[2], row[3], f"{outstanding:.0f}", "Yes" if row[4] else "No"])
+
+    writer.writerow([])
+
+    # Payments
+    writer.writerow(["=== PAYMENTS ==="])
+    writer.writerow(["Date", "Customer", "Amount"])
+    cursor = await db.execute(
+        """SELECT created_at, customer, amount
+           FROM payments WHERE phone = ? ORDER BY created_at DESC""", (phone,))
+    for row in await cursor.fetchall():
+        writer.writerow([str(row[0])[:16], row[1], row[2]])
+
+    writer.writerow([])
+
+    # Stock
+    writer.writerow(["=== STOCK ==="])
+    writer.writerow(["Product", "Unit", "Stock Qty", "Sell Price", "Cost Price"])
+    cursor = await db.execute(
+        """SELECT name, unit, stock_qty, sell_price, cost_price
+           FROM products WHERE phone = ? ORDER BY name""", (phone,))
+    for row in await cursor.fetchall():
+        writer.writerow([row[0], row[1], row[2], row[3], row[4]])
+
+    return output.getvalue()

@@ -3969,6 +3969,93 @@ async def run():
     print(f"  DB verified: sales, credits, expenses, payments, stock, shop names")
     print(f"={'=' * 60}")
 
+    # === NEW FEATURE TESTS (Alpha 0.6) ===
+
+    # --- Supplier tracking ---
+    print("\n--- TEST: Supplier tracking ---")
+    sup_phone = "2349000099001"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (sup_phone,))
+    await db.commit()
+    r = await _route_intent(sup_phone, {"action": "add_stock", "product": "cement", "quantity": 20, "unit": "bag", "cost_price": 3000, "supplier": "Dangote Depot"}, "english")
+    check("Supplier shown in stock response", "dangote" in r.lower() or "Dangote" in r, r[:100])
+    cursor = await db.execute("SELECT supplier FROM stock_entries WHERE phone = ?", (sup_phone,))
+    row = await cursor.fetchone()
+    check("Supplier saved in DB", row and row[0] == "Dangote Depot", str(row))
+
+    r = await _route_intent(sup_phone, {"action": "multi_stock", "items": [
+        {"product": "rod", "quantity": 50, "unit": "piece", "cost_price": 500},
+        {"product": "nail", "quantity": 100, "unit": "pack", "cost_price": 200},
+    ], "supplier": "Alhaji Hardware"}, "english")
+    check("Multi-stock supplier shown", "alhaji" in r.lower() or "Alhaji" in r, r[:100])
+    cursor = await db.execute("SELECT DISTINCT supplier FROM stock_entries WHERE phone = ? AND supplier IS NOT NULL", (sup_phone,))
+    suppliers = [row[0] for row in await cursor.fetchall()]
+    check("Multi-stock supplier saved", "Alhaji Hardware" in suppliers, str(suppliers))
+
+    # Stock without supplier should still work
+    r = await _route_intent(sup_phone, {"action": "add_stock", "product": "sand", "quantity": 5, "unit": "trip", "cost_price": 8000}, "english")
+    check("Stock without supplier works", "stock" in r.lower() or "added" in r.lower(), r[:80])
+
+    # --- Customer sales report ---
+    print("\n--- TEST: Customer sales report ---")
+    cs_phone = "2349000099002"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (cs_phone,))
+    await db.commit()
+    # Record some sales for a customer
+    await _route_intent(cs_phone, {"action": "record_sale", "product": "rice", "quantity": 3, "unit_price": 5000, "customer": "Alhaji Musa"}, "english")
+    await _route_intent(cs_phone, {"action": "record_sale", "product": "beans", "quantity": 2, "unit_price": 3000, "customer": "Alhaji Musa"}, "english")
+    await _route_intent(cs_phone, {"action": "record_sale", "product": "rice", "quantity": 1, "unit_price": 5000, "customer": "Sister Mary"}, "english")
+
+    r = await _route_intent(cs_phone, {"action": "customer_sales", "customer": "Alhaji Musa", "period": "all"}, "english")
+    check("Customer sales shows total", "21,000" in r or "21000" in r, r[:120])
+    check("Customer sales shows products", "rice" in r.lower() and "beans" in r.lower(), r[:200])
+    check("Customer sales shows transactions", "3" in r, r[:100])
+
+    # Customer with no records
+    r = await _route_intent(cs_phone, {"action": "customer_sales", "customer": "Nobody Jones", "period": "all"}, "english")
+    check("Customer sales - no records", "no record" in r.lower() or "no sales" in r.lower() or "not found" in r.lower(), r[:100])
+
+    # Missing customer name
+    r = await _route_intent(cs_phone, {"action": "customer_sales", "customer": "", "period": "all"}, "english")
+    check("Customer sales - asks for name", "which customer" in r.lower(), r[:100])
+
+    # --- Month-over-month comparison ---
+    print("\n--- TEST: Month-over-month comparison ---")
+    cmp_phone = "2349000099003"
+    await db.execute("INSERT INTO shops (phone, onboarded) VALUES (?, 1)", (cmp_phone,))
+    await db.commit()
+    # Add some sales for this month
+    await _route_intent(cmp_phone, {"action": "record_sale", "product": "phone case", "quantity": 10, "unit_price": 500}, "english")
+    await _route_intent(cmp_phone, {"action": "record_expense", "description": "transport", "amount": 1000}, "english")
+
+    r = await _route_intent(cmp_phone, {"action": "compare_months"}, "english")
+    check("Compare months shows this vs last", "this month" in r.lower() or "vs" in r.lower(), r[:100])
+    check("Compare months shows sales", "5,000" in r or "5000" in r, r[:200])
+    check("Compare months shows net cash", "net cash" in r.lower(), r[:300])
+
+    # --- CSV export ---
+    print("\n--- TEST: CSV export ---")
+    from app.report import get_or_create_report_token, generate_csv_export
+    token = await get_or_create_report_token(cs_phone)
+    csv_data = await generate_csv_export(cs_phone)
+    check("CSV contains sales header", "=== SALES ===" in csv_data, csv_data[:100])
+    check("CSV contains product data", "rice" in csv_data.lower(), csv_data[:300])
+    check("CSV contains expenses header", "=== EXPENSES ===" in csv_data)
+    check("CSV contains stock header", "=== STOCK ===" in csv_data)
+
+    # --- Image/photo receipt (parse_image_intent unit test) ---
+    print("\n--- TEST: Image receipt parsing setup ---")
+    from app.nlu import parse_image_intent, IMAGE_PROMPT
+    check("IMAGE_PROMPT defined", len(IMAGE_PROMPT) > 50)
+    check("parse_image_intent callable", callable(parse_image_intent))
+    # We can't test actual Gemini Vision without API key, but verify the function exists
+    # and handles missing API key gracefully
+    import app.nlu as nlu_mod
+    saved_key = nlu_mod.GEMINI_API_KEY
+    nlu_mod.GEMINI_API_KEY = ""
+    r = await parse_image_intent(b"fake_image_data", "english")
+    check("Image parse without API key returns help", r.get("action") == "help", str(r))
+    nlu_mod.GEMINI_API_KEY = saved_key
+
     # === CLEANUP ===
     await close_db()
     for _old in pathlib.Path(".").glob("test_smoke*.db*"):

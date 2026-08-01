@@ -78,6 +78,11 @@ WhatsApp reply (text message + voice note if user sent voice)
 | Customer receipt | "Receipt for Mama Joy" (shareable proof of debt) |
 | Credit reminder | "Remind Mama Joy" (generates reminder message) |
 | Nudge timing | "Send my summary at 7pm" |
+| Photo receipt | Send a photo of your sales book to record entries |
+| CSV export | "My report" includes a CSV download link |
+| Supplier tracking | "I bought from Dangote Depot" |
+| Customer sales | "How much has Alhaji Musa bought from me?" |
+| Month comparison | "Compare this month to last month" |
 | Privacy / delete data | "My privacy" / "Delete my data" |
 | Language | Understands English and Nigerian Pidgin |
 
@@ -128,7 +133,7 @@ The app is configured for Render free tier via `render.yaml`. See [ALPHA_SETUP.m
 ## Testing
 
 ```bash
-# Smoke tests (708 tests, no API keys needed)
+# Smoke tests (728 tests, no API keys needed)
 python test_smoke.py
 
 # CLI simulator (text only, uses local SQLite)

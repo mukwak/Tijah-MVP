@@ -16,13 +16,14 @@ from app.config import WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, VERIFY_WEBHOO
 from app.database import get_db, close_db, try_mark_message_processed
 from app.whatsapp import send_text, send_audio, download_media, send_interactive_buttons
 from app.voice import transcribe, text_to_speech
-from app.nlu import parse_intent
+from app.nlu import parse_intent, parse_image_intent
 from app.preclassifier import preclassify
 from app.responses import get_response
 from app.config import ADMIN_TOKEN
 from app.report import (
     get_phone_by_token, render_report_html, render_admin_html,
     get_customer_by_receipt_token, render_customer_receipt_html,
+    generate_csv_export,
 )
 from app import handlers
 
@@ -245,6 +246,20 @@ async def customer_receipt(token: str):
     return HTMLResponse(content=await render_customer_receipt_html(phone, customer))
 
 
+@app.get("/export/{token}")
+async def export_csv(token: str):
+    """Download shop data as CSV, keyed by the same report token."""
+    phone = await get_phone_by_token(token)
+    if not phone:
+        return HTMLResponse(content="<h3>Export not found</h3>", status_code=404)
+    csv_data = await generate_csv_export(phone)
+    return Response(
+        content=csv_data,
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=tijah-export.csv"},
+    )
+
+
 @app.get("/cron/daily-nudge")
 async def daily_nudge(request: Request):
     """Send evening summary to active users. Call from external cron service."""
@@ -442,6 +457,26 @@ async def _process_message(message: dict):
 
     log.info(f"User text: {text}")
 
+    # Image message — parse with Gemini Vision for receipt scanning
+    if message.get("_is_image"):
+        image_bytes = message.get("_image_bytes")
+        if image_bytes:
+            intent = await parse_image_intent(image_bytes, lang)
+            log.info(f"Image intent: {intent}")
+            if intent.get("action") and intent["action"] != "help":
+                response_text = await _route_intent(phone, intent, lang)
+                if is_new_user:
+                    response_text += get_response("welcome_after_action", lang)
+                await _send_response(phone, response_text, lang)
+                return
+            else:
+                # Couldn't parse the image
+                if lang == "pidgin":
+                    await send_text(phone, "I no fit read wetin dey this picture. Try take am again or type the sales yourself.")
+                else:
+                    await send_text(phone, "I couldn't read this image clearly. Try taking a clearer photo, or type the sales yourself.")
+                return
+
     # Very long voice note (>45s): echo transcription and ask user to confirm
     # before processing — Whisper may have lost content at the tail end
     if message.get("_very_long_voice"):
@@ -582,6 +617,22 @@ async def _extract_text(message: dict, msg_type: str) -> str | None:
                 log.error(f"Transcription error: {e}")
                 return None
 
+    elif msg_type == "image":
+        # Photo message — extract image for receipt scanning
+        image_info = message.get("image", {})
+        media_id = image_info.get("id")
+        caption = image_info.get("caption", "")
+        if media_id:
+            try:
+                image_bytes = await download_media(media_id)
+                message["_image_bytes"] = image_bytes
+                message["_is_image"] = True
+                # Return caption if provided, otherwise a marker for image processing
+                return caption or "__image__"
+            except Exception as e:
+                log.error(f"Image download error: {e}")
+                return None
+
     elif msg_type == "interactive":
         # Button reply
         interactive = message.get("interactive", {})
@@ -634,6 +685,8 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "set_nudge_time": handlers.handle_set_nudge_time,
         "product_profit": handlers.handle_product_profit,
         "split_product": handlers.handle_split_product,
+        "customer_sales": handlers.handle_customer_sales,
+        "compare_months": handlers.handle_compare_months,
     }
 
     handler = handler_map.get(action)

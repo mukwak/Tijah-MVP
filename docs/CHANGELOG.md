@@ -1,5 +1,38 @@
 # Changelog
 
+## Alpha 0.6 - August 2026
+
+### Photo Receipt Scanning
+- Send a photo of a handwritten receipt/sales book and Tijah extracts the entries
+- Uses Gemini Vision to parse images into structured sales/stock actions
+- Falls back gracefully if image is unreadable with bilingual error messages
+
+### CSV Data Export
+- "My report" now includes a CSV download link alongside the HTML report
+- `/export/{token}` endpoint generates downloadable CSV with sales, expenses, credits, payments, stock
+- Partners can open in Excel/Google Sheets for accounting
+
+### Supplier Tracking
+- "I bought cement from Dangote Depot" saves the supplier name with the stock entry
+- Works with both single and multi-stock commands
+- Supplier shown in confirmation message
+
+### Sales-by-Customer Report
+- "How much has Alhaji Musa bought from me?" shows total purchases (cash + credit)
+- Breakdown by product with quantities and totals
+- Period filtering: today, this week, this month, all time
+- Outstanding credit balance included
+
+### Month-over-Month Comparison
+- "Compare this month to last month" shows side-by-side breakdown
+- Sales, expenses, credits, payments, net cash with percentage changes
+- NLU action 37 added
+
+### Testing
+- 728 smoke tests (20 new for Alpha 0.6 features), all passing
+
+---
+
 ## Alpha 0.5 - August 2026
 
 ### 3-Month User Simulation (Round 11)

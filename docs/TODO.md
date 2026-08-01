@@ -207,10 +207,9 @@ Users often wait until they're done serving customers to record everything at on
   *Affected user: Ada.*
   Files: `app/handlers.py` (handle_edit_last)
 
-- [ ] **No month-over-month comparison view**
-  "How did this month compare to last month?" only shows current month with a one-line insight. No side-by-side breakdown.
-  *Affected user: Ada.*
-  Files: `app/handlers.py` (handle_daily_summary)
+- [x] **No month-over-month comparison view** (FIXED)
+  New `handle_compare_months` handler + NLU action 37. Side-by-side breakdown: sales, expenses, credits, payments, net cash with percentage changes.
+  Files: `app/handlers.py`, `app/nlu.py`, `app/main.py`
 
 ---
 
@@ -255,16 +254,16 @@ Users often wait until they're done serving customers to record everything at on
 - [x] **Inventory alerts** — "Your cement is running low, only 10 bags left" sent proactively (Chidi) (DONE)
 - [x] **Payment summary** — "How much did people pay me this week?" (Chidi) (DONE)
 - [x] **Product merge** — "Coke and Coca Cola are the same thing" (Iya Sade) (DONE)
-- [ ] **Photo receipt** — take a photo of a handwritten receipt and have Tijah extract it (Mama Adaeze)
+- [x] **Photo receipt** — take a photo of a handwritten receipt and have Tijah extract it (Mama Adaeze) (DONE)
 - [x] **Debt aging** — "Mama Joy has owed you for 30 days" warning (Chidi) (DONE)
 - [x] **Quick daily total** — "I sold 20 thousand today" without listing items (Mama Adaeze, Iya Sade) (DONE)
-- [ ] **Export to Excel/PDF** — download records for printing or sharing (Chidi)
-- [ ] **Supplier tracking** — "I bought from supplier X" for purchase attribution (Chidi)
+- [x] **Export to CSV** — download records for printing or sharing (Chidi) (DONE)
+- [x] **Supplier tracking** — "I bought from supplier X" for purchase attribution (Chidi) (DONE)
 - [x] **Profit per product** — "Which product makes me the most money?" (Chidi) (DONE)
 - [x] **Voice-guided onboarding** — audio walkthrough for first-time voice users (Iya Sade) (DONE)
 - [x] **Voice report summary** — spoken overview of report data for voice-only users (Oga Segun) (DONE)
 - [x] **Product split** — reclassify old entries when a product needs to be separated (Sister Funke) (DONE)
-- [ ] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman)
+- [x] **Sales-by-customer report** — "How much has Alhaji Musa bought from me this month?" Total purchases (not just credit) per customer (Alhaji Suleiman) (DONE)
 - [ ] **Product variants** — sub-products like "box braids" vs "cornrow" under a parent "braiding" category (Ada)
 - [x] **Smarter long voice note handling** (DONE) — TTS splits long replies into up to 3 voice note chunks; STT echo-and-confirm for very long notes (>45s); one-time hint for long notes (>30s). 306 tests with full DB verification.
 
