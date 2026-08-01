@@ -80,6 +80,11 @@ class SQLiteDatabase:
             await self.commit()
         except Exception:
             pass  # Column already exists
+        try:
+            await self.execute("ALTER TABLE shops ADD COLUMN milestones_seen TEXT")
+            await self.commit()
+        except Exception:
+            pass  # Column already exists
 
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
@@ -169,6 +174,10 @@ class PostgresDatabase:
             pass  # Column already exists
         try:
             await self._execute("ALTER TABLE stock_entries ADD COLUMN supplier TEXT", ())
+        except Exception:
+            pass  # Column already exists
+        try:
+            await self._execute("ALTER TABLE shops ADD COLUMN milestones_seen TEXT", ())
         except Exception:
             pass  # Column already exists
 
@@ -268,7 +277,8 @@ CREATE TABLE IF NOT EXISTS shops (
     onboarded   INTEGER DEFAULT 0,
     voice_user  INTEGER DEFAULT 0,
     long_voice_hinted INTEGER DEFAULT 0,
-    nudge_hour  INTEGER DEFAULT 20
+    nudge_hour  INTEGER DEFAULT 20,
+    milestones_seen TEXT
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -399,7 +409,8 @@ CREATE TABLE IF NOT EXISTS shops (
     onboarded   INTEGER DEFAULT 0,
     voice_user  INTEGER DEFAULT 0,
     long_voice_hinted INTEGER DEFAULT 0,
-    nudge_hour  INTEGER DEFAULT 20
+    nudge_hour  INTEGER DEFAULT 20,
+    milestones_seen TEXT
 );
 
 CREATE TABLE IF NOT EXISTS products (

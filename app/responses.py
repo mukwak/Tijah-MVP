@@ -451,6 +451,68 @@ RESPONSES = {
         "pidgin": "\n\nYour top seller today na {product} ({total} naira). Keep am stocked!",
         "english": "\n\nYour top seller today was {product} ({total} naira). Keep it stocked!",
     },
+
+    # === PROACTIVE INSIGHTS ===
+    "milestone_sales": {
+        "pidgin": "\n\nYou don reach {count} sales! You dey do well, keep am up!",
+        "english": "\n\nYou just hit {count} sales! You're doing great, keep it up!",
+    },
+    "milestone_revenue": {
+        "pidgin": "\n\nYour shop don make over {amount} naira! Na big achievement!",
+        "english": "\n\nYour shop has made over {amount} naira! That's a big achievement!",
+    },
+    "insight_best_day": {
+        "pidgin": "\n\nYour best day na {day} ({total} naira).",
+        "english": "\n\nYour busiest day was {day} ({total} naira).",
+    },
+    "insight_customer_concentration": {
+        "pidgin": "\n\nYour top customer na {customer} ({total} naira — {pct}% of your sales).",
+        "english": "\n\nYour top customer is {customer} ({total} naira — {pct}% of sales).",
+    },
+    "insight_margin_drop": {
+        "pidgin": "\n\nYour profit margin don drop from {old_margin}% to {new_margin}% this month. Check your prices.",
+        "english": "\n\nYour profit margin dropped from {old_margin}% to {new_margin}% this month. Check your prices.",
+    },
+    "nudge_debt_30": {
+        "pidgin": "\n\n{customer} don owe you {amount} naira for {days} days now. Try ask for part payment.",
+        "english": "\n\n{customer} has owed you {amount} naira for {days} days. Consider asking for a partial payment.",
+    },
+    "nudge_debt_60": {
+        "pidgin": "\n\n{customer} don owe you {amount} naira for {days} days! This debt don old o. Try go visit am.",
+        "english": "\n\n{customer} has owed you {amount} naira for {days} days! This debt is getting old. You may want to visit them.",
+    },
+    "nudge_slow_product": {
+        "pidgin": "\n\nYou never sell {product} for {days} days now. Think about whether to reduce how much you buy.",
+        "english": "\n\nYou haven't sold {product} in {days} days. Consider buying less next time.",
+    },
+    "nudge_restock": {
+        "pidgin": "\n\n{product} don finish but e dey sell well. Time to restock!",
+        "english": "\n\n{product} is out of stock but sells well. Time to restock!",
+    },
+    "nudge_weekly_up": {
+        "pidgin": (
+            "Your week don end! This week: {this_total} naira ({this_count} sales). "
+            "Last week: {last_total} naira. You dey grow! Well done!"
+        ),
+        "english": (
+            "Your week is done! This week: {this_total} naira ({this_count} sales). "
+            "Last week: {last_total} naira. You're growing! Well done!"
+        ),
+    },
+    "nudge_weekly_down": {
+        "pidgin": (
+            "Your week don end! This week: {this_total} naira ({this_count} sales). "
+            "Last week: {last_total} naira. Next week go better!"
+        ),
+        "english": (
+            "Your week is done! This week: {this_total} naira ({this_count} sales). "
+            "Last week: {last_total} naira. Next week will be better!"
+        ),
+    },
+    "nudge_weekly_first": {
+        "pidgin": "Your week don end! This week: {this_total} naira ({this_count} sales). Well done!",
+        "english": "Your week is done! This week: {this_total} naira ({this_count} sales). Well done!",
+    },
 }
 
 

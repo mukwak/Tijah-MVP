@@ -304,7 +304,10 @@ async def daily_nudge(request: Request):
         else:
             msg = get_response("nudge_evening_idle", lang)
 
-        # Debt aging: mention oldest unpaid debt (>14 days)
+        # One proactive insight per nudge — pick the most urgent
+        extra_insight = ""
+
+        # Debt aging with escalation tiers (highest priority)
         cursor = await db.execute(
             """SELECT customer, amount, created_at FROM credits
                WHERE phone = ? AND settled = 0
@@ -319,10 +322,60 @@ async def daily_nudge(request: Request):
                 "SELECT CAST(julianday('now', '+1 hours') - julianday(?) AS INTEGER)",
                 (created_at,),
             )).fetchone())[0]
-            msg += get_response("nudge_debt_aging", lang,
-                                customer=customer, amount=_fmt(amount), days=days_ago)
+            if days_ago >= 60:
+                extra_insight = get_response("nudge_debt_60", lang,
+                                             customer=customer, amount=_fmt(amount), days=days_ago)
+            elif days_ago >= 30:
+                extra_insight = get_response("nudge_debt_30", lang,
+                                             customer=customer, amount=_fmt(amount), days=days_ago)
+            else:
+                extra_insight = get_response("nudge_debt_aging", lang,
+                                             customer=customer, amount=_fmt(amount), days=days_ago)
 
-        # Top seller insight
+        # Restock suggestion: out of stock but was selling well (only if no debt insight)
+        if not extra_insight:
+            cursor = await db.execute(
+                """SELECT p.name FROM products p
+                   WHERE p.phone = ? AND p.stock_qty <= 0
+                   AND EXISTS (
+                       SELECT 1 FROM stock_entries se WHERE se.product_id = p.id
+                   )
+                   AND EXISTS (
+                       SELECT 1 FROM sales s WHERE s.product_id = p.id
+                       AND s.created_at >= datetime('now', '+1 hours', '-30 days')
+                   )
+                   LIMIT 1""",
+                (phone,),
+            )
+            restock = await cursor.fetchone()
+            if restock:
+                extra_insight = get_response("nudge_restock", lang, product=restock[0])
+
+        # Slow-selling product (only if no other insight yet, and user has 20+ sales)
+        if not extra_insight:
+            total_sales_count = (await (await db.execute(
+                "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+            )).fetchone())[0]
+            if total_sales_count >= 20:
+                cursor = await db.execute(
+                    """SELECT p.name,
+                       CAST(julianday('now', '+1 hours') - julianday(MAX(s.created_at)) AS INTEGER) as days_since
+                       FROM products p
+                       JOIN sales s ON s.product_id = p.id AND s.phone = p.phone
+                       WHERE p.phone = ?
+                       GROUP BY p.id
+                       HAVING days_since >= 14
+                       ORDER BY days_since DESC LIMIT 1""",
+                    (phone,),
+                )
+                slow = await cursor.fetchone()
+                if slow:
+                    extra_insight = get_response("nudge_slow_product", lang,
+                                                 product=slow[0], days=slow[1])
+
+        msg += extra_insight
+
+        # Top seller insight (always shown alongside the proactive insight — it's core data)
         if sales_count > 0:
             cursor = await db.execute(
                 """SELECT p.name, SUM(sa.total) as rev FROM sales sa
@@ -397,6 +450,78 @@ async def morning_nudge(request: Request):
             sent += 1
         except Exception as e:
             log.error(f"Morning nudge failed for {phone}: {e}")
+
+    return {"sent": sent, "total_active": len(active_shops)}
+
+
+@app.get("/cron/weekly-nudge")
+async def weekly_nudge(request: Request):
+    """Send weekly performance wrap-up. Call from external cron on Sunday evening."""
+    token = request.query_params.get("token", "")
+    if not ADMIN_TOKEN or not hmac.compare_digest(token, ADMIN_TOKEN):
+        return PlainTextResponse("Forbidden", status_code=403)
+
+    db = await get_db()
+
+    # Find shops active in the last 14 days (wider window so we can compare weeks)
+    cursor = await db.execute(
+        """SELECT DISTINCT s.phone, s.language, s.voice_user FROM shops s
+           WHERE EXISTS (
+               SELECT 1 FROM sales WHERE sales.phone = s.phone
+               AND sales.created_at >= datetime('now', '+1 hours', '-14 days')
+           )"""
+    )
+    active_shops = await cursor.fetchall()
+
+    sent = 0
+    for shop in active_shops:
+        phone, lang, is_voice_user = shop[0], shop[1] or "english", shop[2] or 0
+
+        # This week's stats
+        cursor = await db.execute(
+            """SELECT COALESCE(SUM(quantity), 0), COALESCE(SUM(total), 0) FROM sales
+               WHERE phone = ? AND created_at >= datetime('now', '+1 hours', '-7 days')""",
+            (phone,),
+        )
+        row = await cursor.fetchone()
+        this_count, this_total = int(row[0]), row[1]
+
+        if this_count == 0:
+            continue  # No sales this week, skip
+
+        # Last week's stats
+        cursor = await db.execute(
+            """SELECT COALESCE(SUM(total), 0) FROM sales
+               WHERE phone = ? AND created_at >= datetime('now', '+1 hours', '-14 days')
+               AND created_at < datetime('now', '+1 hours', '-7 days')""",
+            (phone,),
+        )
+        last_total = (await cursor.fetchone())[0]
+
+        if last_total > 0:
+            if this_total >= last_total:
+                msg = get_response("nudge_weekly_up", lang,
+                                   this_total=_fmt(this_total), this_count=this_count,
+                                   last_total=_fmt(last_total))
+            else:
+                msg = get_response("nudge_weekly_down", lang,
+                                   this_total=_fmt(this_total), this_count=this_count,
+                                   last_total=_fmt(last_total))
+        else:
+            msg = get_response("nudge_weekly_first", lang,
+                               this_total=_fmt(this_total), this_count=this_count)
+
+        try:
+            await send_text(phone, msg)
+            if is_voice_user:
+                try:
+                    audio_path = await text_to_speech(msg, lang)
+                    await send_audio(phone, audio_path)
+                except Exception as e:
+                    log.error(f"Weekly nudge TTS failed for {phone}: {e}")
+            sent += 1
+        except Exception as e:
+            log.error(f"Weekly nudge failed for {phone}: {e}")
 
     return {"sent": sent, "total_active": len(active_shops)}
 

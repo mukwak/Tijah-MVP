@@ -1,5 +1,32 @@
 # Changelog
 
+## Alpha 0.7 - August 2026
+
+### Proactive Business Insights (8 features)
+All insights follow the "one follow-on at a time" rule — never overwhelm the user.
+
+- **Weekly performance nudge**: Sunday evening wrap-up comparing this week to last week with growth/encouragement messaging. New `/cron/weekly-nudge` endpoint.
+- **Milestone celebrations**: "You just hit 50 sales!" / "Your shop made over 100,000 naira!" Fires once per milestone at 25/50/100/200/500 sales and 100K/500K/1M/5M revenue. Tracked in `milestones_seen` JSON.
+- **Slow-selling product alerts**: Evening nudge warns about products not sold in 14+ days. Only for users with 20+ total sales.
+- **Margin alerts**: Monthly summary flags when profit margin drops 5+ percentage points vs last month. Requires COGS data.
+- **Credit aging escalation**: Three-tier urgency in evening nudge — gentle (14-30 days), firm (30-60 days), urgent (60+ days).
+- **Restock suggestions**: Evening nudge flags products at stock=0 that sold recently. "Time to restock!"
+- **Best day insight**: Weekly/monthly summary shows busiest day by revenue.
+- **Customer concentration**: Monthly/all-time summary shows top customer when they account for 25%+ of sales.
+
+### Follow-on Priority System
+Responses now have a strict one-follow-on rule:
+- **After sales**: milestone > discovery hint (by sale count) — never both
+- **In summaries**: margin alert > best day > customer concentration > report hint — pick one
+- **In evening nudge**: debt aging (tiered) > restock > slow product — pick one; top seller and low stock always shown
+
+### Testing
+- 859 smoke tests (13 new for proactive insights), all passing
+- Round 12: 6-month simulation with 5 users, 56 sales, 2.1M naira
+- Verified: milestones fire once, insights gated behind data thresholds, no stacking
+
+---
+
 ## Alpha 0.6 - August 2026
 
 ### Photo Receipt Scanning

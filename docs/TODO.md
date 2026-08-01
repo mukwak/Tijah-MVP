@@ -269,6 +269,44 @@ Users often wait until they're done serving customers to record everything at on
 
 ---
 
+## Proactive Insights (from Round 12 — 6-month simulation)
+
+*Tijah should proactively push business insights from user data, not just respond to queries. One follow-on at a time — never stack insights with discovery hints.*
+
+- [x] **Weekly performance nudge** (FIXED)
+  New `/cron/weekly-nudge` endpoint (Sunday evening). Compares this week vs last week with growth messaging. Includes TTS for voice users.
+  Files: `app/main.py`, `app/responses.py`
+
+- [x] **Milestone celebrations** (FIXED)
+  Fires at 25/50/100/200/500 sales and 100K/500K/1M/5M revenue. Each fires once (tracked in `shops.milestones_seen` JSON). Replaces discovery hint — never stacks. Revenue milestones gated behind 10+ sales to avoid firing on first big sale.
+  Files: `app/handlers.py` (_check_milestone), `app/database.py` (milestones_seen column), `app/responses.py`
+
+- [x] **Slow-selling product alerts** (FIXED)
+  In evening nudge: "You haven't sold butter in 14 days." Only fires for users with 20+ total sales, only for products that previously sold. One proactive insight per nudge — never stacks with debt aging or restock.
+  Files: `app/main.py` (daily_nudge), `app/responses.py`
+
+- [x] **Margin alerts** (FIXED)
+  In monthly summary: "Your profit margin dropped from 22% to 15% this month." Only fires if both months have COGS data and margin dropped 5+ percentage points. Part of the one-follow-on system — replaces other insights.
+  Files: `app/handlers.py` (handle_daily_summary), `app/responses.py`
+
+- [x] **Credit aging escalation** (FIXED)
+  Three tiers in evening nudge: 14-30 days (gentle), 30-60 days ("ask for partial payment"), 60+ days ("visit them"). Replaces the old single-tier nudge. Highest priority in the proactive insight slot.
+  Files: `app/main.py` (daily_nudge), `app/responses.py`
+
+- [x] **Restock suggestions** (FIXED)
+  In evening nudge: "Phone cases is out of stock but sells well. Time to restock!" Fires when stock=0, stock was tracked (has stock_entries), and product sold in last 30 days. Only if no debt aging insight.
+  Files: `app/main.py` (daily_nudge), `app/responses.py`
+
+- [x] **Best day/busiest day insight** (FIXED)
+  In weekly/monthly summary: "Your busiest day was Saturday (18,000 naira)." Only fires with 5+ sales in the period and 2+ sales on the best day. Part of one-follow-on system.
+  Files: `app/handlers.py` (handle_daily_summary), `app/responses.py`
+
+- [x] **Customer concentration insight** (FIXED)
+  In monthly/all-time summary: "Your top customer is Alhaji Boss (400,000 naira — 80% of sales)." Only fires with 10+ sales and when top customer accounts for 25%+ of revenue. Part of one-follow-on system.
+  Files: `app/handlers.py` (handle_daily_summary), `app/responses.py`
+
+---
+
 ## Stats from 3-Month User Simulation (Round 11)
 
 *5 low-literate Nigerian users over 3 months. Tests ALL features end-to-end including new fixes.*

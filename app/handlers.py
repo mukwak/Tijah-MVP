@@ -199,10 +199,16 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     ) + low_stock_msg
 
     # One contextual nudge — rotate discovery hints by total sale count
+    # Rule: only ONE follow-on per response (hint, milestone, or insight — never stack)
     sale_count = (await (await db.execute(
         "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
     )).fetchone())[0]
-    if sale_count == 1:
+
+    # Check for milestones first — they take priority over discovery hints
+    milestone_msg = await _check_milestone(db, phone, sale_count, total, lang)
+    if milestone_msg:
+        result += milestone_msg
+    elif sale_count == 1:
         result += get_response("hint_after_sale", lang)
     elif sale_count == 2:
         result += get_response("hint_undo", lang)
@@ -954,13 +960,76 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
                         else:
                             result += f"\nYour profit is down {pct}% compared to {prev_label.lower()}."
 
-    # If the user has never opened their report, point them to it once per summary
-    token_row = await (await db.execute(
-        "SELECT token FROM report_tokens WHERE phone = ?", (phone,)
-    )).fetchone()
-    if not token_row:
-        result += get_response("hint_report", lang)
+    # One follow-on insight — pick the most relevant, never stack
+    follow_on = ""
 
+    # Margin alert: if monthly summary has COGS and margin dropped vs last month
+    if not follow_on and period == "month" and cost_of_goods > 0 and sales_total > 0:
+        current_margin = int((sales_total - cost_of_goods) / sales_total * 100)
+        prev_month_filter = ("created_at >= datetime('now', '+1 hours', '-60 days') "
+                             "AND created_at < datetime('now', '+1 hours', '-30 days')")
+        prev_m_filter = prev_month_filter.replace("created_at", "s.created_at")
+        cursor = await db.execute(
+            f"SELECT COALESCE(SUM(total), 0) FROM sales WHERE phone = ? AND {prev_month_filter}",
+            (phone,))
+        prev_rev = (await cursor.fetchone())[0]
+        if prev_rev > 0:
+            cursor = await db.execute(
+                f"""SELECT COALESCE(SUM(s.quantity * p.cost_price), 0)
+                    FROM sales s JOIN products p ON s.product_id = p.id
+                    WHERE s.phone = ? AND {prev_m_filter} AND p.cost_price > 0""",
+                (phone,))
+            prev_cogs_m = (await cursor.fetchone())[0]
+            if prev_cogs_m > 0:
+                prev_margin = int((prev_rev - prev_cogs_m) / prev_rev * 100)
+                if prev_margin - current_margin >= 5:
+                    follow_on = get_response("insight_margin_drop", lang,
+                                             old_margin=prev_margin, new_margin=current_margin)
+
+    # Best day insight (weekly/monthly, needs 3+ days of data)
+    if not follow_on and period in ("week", "month") and sales_count >= 5:
+        day_filter = date_filter.replace("created_at", "created_at")
+        cursor = await db.execute(
+            f"""SELECT CASE CAST(strftime('%w', created_at) AS INTEGER)
+                    WHEN 0 THEN 'Sunday' WHEN 1 THEN 'Monday' WHEN 2 THEN 'Tuesday'
+                    WHEN 3 THEN 'Wednesday' WHEN 4 THEN 'Thursday'
+                    WHEN 5 THEN 'Friday' WHEN 6 THEN 'Saturday' END as day_name,
+                SUM(total) as day_total
+                FROM sales WHERE phone = ? AND {date_filter}
+                GROUP BY strftime('%w', created_at)
+                HAVING COUNT(*) >= 2
+                ORDER BY day_total DESC LIMIT 1""",
+            (phone,),
+        )
+        best_day = await cursor.fetchone()
+        if best_day:
+            follow_on = get_response("insight_best_day", lang,
+                                     day=best_day[0], total=_fmt(best_day[1]))
+
+    # Customer concentration (monthly/all, needs customer data)
+    if not follow_on and period in ("month", "all") and sales_count >= 10:
+        cursor = await db.execute(
+            f"""SELECT customer, SUM(total) FROM sales
+                WHERE phone = ? AND {date_filter} AND customer IS NOT NULL AND customer != ''
+                GROUP BY LOWER(customer) ORDER BY SUM(total) DESC LIMIT 1""",
+            (phone,),
+        )
+        top_cust = await cursor.fetchone()
+        if top_cust and sales_total > 0:
+            cust_pct = int(top_cust[1] / sales_total * 100)
+            if cust_pct >= 25:
+                follow_on = get_response("insight_customer_concentration", lang,
+                                         customer=top_cust[0], total=_fmt(top_cust[1]), pct=cust_pct)
+
+    # Report hint (fallback: only if no other insight fired and user hasn't opened report)
+    if not follow_on:
+        token_row = await (await db.execute(
+            "SELECT token FROM report_tokens WHERE phone = ?", (phone,)
+        )).fetchone()
+        if not token_row:
+            follow_on = get_response("hint_report", lang)
+
+    result += follow_on
     return result
 
 
@@ -2371,6 +2440,46 @@ async def handle_what_can_you_do(phone: str, data: dict, lang: str) -> str:
     footer = "\nJust yarn to me normal!" if is_pidgin else "\nJust talk to me normally!"
 
     return f"{header}\n\n{tip_list}{footer}"
+
+
+_SALE_MILESTONES = [25, 50, 100, 200, 500]
+_REVENUE_MILESTONES = [100_000, 500_000, 1_000_000, 5_000_000]
+
+
+async def _check_milestone(db, phone, sale_count, sale_total, lang):
+    """Check if this sale crossed a milestone. Returns message or None.
+    Each milestone fires only once (tracked in shops.milestones_seen JSON)."""
+    cursor = await db.execute("SELECT milestones_seen FROM shops WHERE phone = ?", (phone,))
+    row = await cursor.fetchone()
+    try:
+        seen = json.loads(row[0]) if row and row[0] else []
+    except (json.JSONDecodeError, TypeError):
+        seen = []
+
+    # Check sale count milestones
+    for m in _SALE_MILESTONES:
+        if sale_count >= m and f"sales_{m}" not in seen:
+            seen.append(f"sales_{m}")
+            await db.execute("UPDATE shops SET milestones_seen = ? WHERE phone = ?",
+                             (json.dumps(seen), phone))
+            await db.commit()
+            return get_response("milestone_sales", lang, count=f"{m:,}")
+
+    # Check revenue milestones (only after 10+ sales — don't fire on first big sale)
+    if sale_count < 10:
+        return None
+    cursor = await db.execute(
+        "SELECT COALESCE(SUM(total), 0) FROM sales WHERE phone = ?", (phone,))
+    total_rev = (await cursor.fetchone())[0]
+    for m in _REVENUE_MILESTONES:
+        if total_rev >= m and f"rev_{m}" not in seen:
+            seen.append(f"rev_{m}")
+            await db.execute("UPDATE shops SET milestones_seen = ? WHERE phone = ?",
+                             (json.dumps(seen), phone))
+            await db.commit()
+            return get_response("milestone_revenue", lang, amount=_fmt(m))
+
+    return None
 
 
 async def _get_discovery_hint(db, phone, lang):

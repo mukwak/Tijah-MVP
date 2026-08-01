@@ -133,7 +133,7 @@ The app is configured for Render free tier via `render.yaml`. See [ALPHA_SETUP.m
 ## Testing
 
 ```bash
-# Smoke tests (728 tests, no API keys needed)
+# Smoke tests (859 tests, no API keys needed)
 python test_smoke.py
 
 # CLI simulator (text only, uses local SQLite)
