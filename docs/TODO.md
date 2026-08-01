@@ -270,6 +270,51 @@ Users often wait until they're done serving customers to record everything at on
 
 ---
 
+## Stats from 3-Month User Simulation (Round 11)
+
+*5 low-literate Nigerian users over 3 months. Tests ALL features end-to-end including new fixes.*
+
+| User | Type | Language | Sales | Revenue | Features Discovered |
+|------|------|----------|:-----:|--------:|:-------------------:|
+| Mama Bisi | Food vendor | Pidgin | 20 | 136,500 | 19 |
+| Oga Chukwu | Auto parts | English | 8 | 143,000 | 17 |
+| Sister Halima | Cosmetics/salon | English | 7 | 70,500 | 16 |
+| Baba Idris | Building materials | Pidgin | 9 | 607,500 | 15 |
+| Ada Blessing | Provision store | English | 7 | 25,300 | 20 |
+| **Total** | | | **51** | **977,800** | |
+
+### Key Findings
+
+| Area | Result |
+|------|--------|
+| Product profit | Per-product margin % with cost data works |
+| Split product | "Separate jollof rice from rice" creates distinct product |
+| Stock grouping | 8+ products grouped by In stock / Low / Out |
+| Shop name hint | Fires at sale 8, both users set names |
+| Food vendor profit label | "After expenses" instead of "Profit (after cost and expenses)" |
+| Whisper aliases | 25+ transcription variants (auto parts, food, cosmetics) |
+| Product variants | 1/2 inch vs 3/4 inch iron rod stay distinct, stock isolated |
+| Multi-customer | Different customers per item in multi-sale, credit isolated |
+| Voice report summary | Top 3 products spoken alongside report link |
+| Nudge timing | Configurable per user (default 8pm WAT) |
+| M10 fix | Undo timestamp tie-breaking uses id as secondary sort |
+| DB accuracy | All 51 sales, credits, expenses, payments, stock verified |
+| Cross-user isolation | No data leakage between 5 users |
+| New features covered | 21/21 |
+| **Issues found** | **0** |
+
+### Comparison vs Round 10
+
+| Metric | Round 10 | Round 11 | Change |
+|--------|:---:|:---:|:---:|
+| Total tests | 552 | 708 | +28% coverage |
+| Users simulated | 3 | 5 | Broader diversity |
+| New features tested | 3 | 21 | Comprehensive |
+| Revenue tested | 1,129,500 | 977,800 | Different mix |
+| New issues found | 1 (M10) | 0 | All clear |
+
+---
+
 ## Stats from 3-Month User Simulation (Round 10)
 
 *3 new low-literate Nigerian users over 3 months. Tests multi-stock, all-time summary, multi-sale per-customer credit.*

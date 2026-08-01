@@ -71,8 +71,13 @@ WhatsApp reply (text message + voice note if user sent voice)
 | Undo / edit | "Cancel that" / "Undo the rice sale" / "It was 3 not 5" |
 | Backdate | "I sold rice yesterday" / "I sold cement on Saturday" |
 | Merge products | "Coke and coca cola are the same thing" |
-| Shop report | "My report" (generates a shareable web link) |
+| Split products | "Separate jollof rice from rice" |
+| Profit per product | "Which product makes me the most money?" |
+| Product variants | "1/2 inch iron rod" and "3/4 inch iron rod" stay distinct |
+| Shop report | "My report" (link + voice-friendly top products summary) |
 | Customer receipt | "Receipt for Mama Joy" (shareable proof of debt) |
+| Credit reminder | "Remind Mama Joy" (generates reminder message) |
+| Nudge timing | "Send my summary at 7pm" |
 | Privacy / delete data | "My privacy" / "Delete my data" |
 | Language | Understands English and Nigerian Pidgin |
 
@@ -91,7 +96,7 @@ app/
   report.py       - Shareable HTML report pages
   config.py       - Environment variable loading
 test_local.py     - CLI simulator for local testing
-test_smoke.py     - End-to-end smoke tests (430 tests)
+test_smoke.py     - End-to-end smoke tests (708 tests)
 render.yaml       - Render deployment blueprint
 ```
 
@@ -123,7 +128,7 @@ The app is configured for Render free tier via `render.yaml`. See [ALPHA_SETUP.m
 ## Testing
 
 ```bash
-# Smoke tests (430 tests, no API keys needed)
+# Smoke tests (708 tests, no API keys needed)
 python test_smoke.py
 
 # CLI simulator (text only, uses local SQLite)

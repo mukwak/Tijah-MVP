@@ -2,6 +2,14 @@
 
 ## Alpha 0.5 - August 2026
 
+### 3-Month User Simulation (Round 11)
+- 5 new low-literate Nigerian users simulated over 3 months of daily usage
+- Mama Bisi (Pidgin food vendor), Oga Chukwu (English auto parts), Sister Halima (English cosmetics), Baba Idris (Pidgin building materials), Ada Blessing (English provision store)
+- Full lifecycle tested: all 21 new features end-to-end, progressive discovery, DB correctness
+- DB verification for all 51 sales (977,800 naira), credits, expenses, payments, stock, shop names
+- All 5 users discovered 15-20 features organically
+- 708 total tests, all passing, 0 issues found
+
 ### Bug Fix: Undo Timestamp Tie-Breaking (M10)
 - Added `id DESC` as secondary sort in `handle_undo` so same-second operations pick the most recent record by ID
 
