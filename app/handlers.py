@@ -75,6 +75,12 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
             unit_price = existing[2]
             total = unit_price * quantity
         else:
+            # Save sale context so price reply can complete it
+            await _save_pending(db, phone, {
+                "action": "price_needed",
+                "data": data,
+                "lang": lang,
+            })
             return get_response("sale_needs_price", lang, product=product)
 
     # Price ambiguity: "3 bags for 25 thousand" — each or total?
@@ -220,6 +226,13 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         hint = await _get_discovery_hint(db, phone, lang)
         if hint:
             result += hint
+    elif sale_count == 6:
+        # Nudge text-only users to try voice notes
+        voice_row = await (await db.execute(
+            "SELECT voice_user FROM shops WHERE phone = ?", (phone,)
+        )).fetchone()
+        if voice_row and not voice_row[0]:
+            result += get_response("hint_try_voice", lang)
     elif sale_count == 8:
         # Check if shop name is set; if not, hint about it
         shop_row = await (await db.execute(
@@ -1203,6 +1216,11 @@ async def handle_feedback(phone: str, data: dict, lang: str) -> str:
     message = (data.get("message") or "").strip()
 
     if not message:
+        # Save pending so the NEXT message is captured as feedback
+        await _save_pending(db, phone, {
+            "action": "pending_feedback",
+            "lang": lang,
+        })
         if lang == "pidgin":
             return "Wetin happen? Tell me the problem, I go send am to the Tijah team."
         return "What happened? Tell me the problem and I'll send it to the Tijah team."
@@ -1212,7 +1230,7 @@ async def handle_feedback(phone: str, data: dict, lang: str) -> str:
         (phone, message),
     )
     await db.commit()
-    return get_response("feedback_saved", lang)
+    return get_response("feedback_saved", lang, message=message)
 
 
 async def handle_credit_history(phone: str, data: dict, lang: str) -> str:

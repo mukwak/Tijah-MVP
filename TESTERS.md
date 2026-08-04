@@ -55,11 +55,13 @@ Talk normally, in English or Pidgin. Voice notes work - just press the mic and t
 
 ## We need your feedback!
 
-Tell us (in the tester WhatsApp group or directly):
+**Inside Tijah:** Send "I have a complaint" or "I get complaint" and tell Tijah what went wrong. This goes straight to the team. You can also just say what happened naturally, like "you recorded it wrong" or "the voice note didn't play".
 
-- Anything Tijah misunderstood - what you said vs. what it recorded
+**In the tester group:** Share anything else — ideas, confusion, things you wish Tijah could do.
+
+What helps us most:
+- What you said vs. what Tijah recorded (misunderstandings)
 - Anything confusing or annoying
-- Anything you wish it could do
-- Any time it just didn't reply
+- Any time Tijah didn't reply at all
 
 Every complaint helps us make it better. Thank you!

@@ -15,16 +15,14 @@ RESPONSES = {
         "pidgin": (
             "How far! I be Tijah, your shop helper.\n\n"
             "Voice note or text, just tell me wetin you sell, buy, or who owe you. "
-            "By sending me message, you agree say I fit save your shop records to help you. "
-            "Your data na private — I no go share am. "
+            "I go save only wetin you tell me, and I only use am to help your shop. "
             "Say \"my privacy\" to learn more, or \"I get complaint\" if anything no work.\n\n"
             "Wetin you sell today?"
         ),
         "english": (
             "Hi! I'm Tijah, your shop helper.\n\n"
             "Voice note or text - just tell me what you sell, buy, or who owes you. "
-            "By sending me messages, you agree that I can save your shop records to help you. "
-            "Your data is private — I won't share it. "
+            "I only save what you tell me, and I only use it to help your shop. "
             "Say \"my privacy\" to learn more, or \"I have a complaint\" if anything goes wrong.\n\n"
             "What did you sell today?"
         ),
@@ -32,13 +30,13 @@ RESPONSES = {
     "welcome_after_action": {
         "pidgin": (
             "\n\nBy the way - I be Tijah, your shop helper! "
-            "I go keep all your sales, stock, and credit records. "
-            "Your data na private. Just yarn to me anytime."
+            "I only save wetin you tell me, and I only use am to help your shop. "
+            "If anything no work, tell me \"I get complaint\"."
         ),
         "english": (
             "\n\nBy the way - I'm Tijah, your shop helper! "
-            "I'll keep all your sales, stock, and credit records. "
-            "Your data is private. Just talk to me anytime."
+            "I only save what you tell me, and I only use it to help your shop. "
+            "If anything goes wrong, tell me \"I have a complaint\"."
         ),
     },
 
@@ -175,11 +173,13 @@ RESPONSES = {
     # === FEEDBACK ===
     "feedback_saved": {
         "pidgin": (
-            "Thank you! I don send your complaint to the Tijah team. "
+            "Thank you! I don send your complaint to the Tijah team:\n\n"
+            "\"{message}\"\n\n"
             "Dem go look am well. Anything else?"
         ),
         "english": (
-            "Thank you! I've sent your feedback to the Tijah team. "
+            "Thank you! I've sent your feedback to the Tijah team:\n\n"
+            "\"{message}\"\n\n"
             "They'll look into it. Anything else?"
         ),
     },
@@ -207,7 +207,8 @@ RESPONSES = {
             "\"Mama Joy owe me 5 thousand\"\n"
             "\"How my shop do today?\"\n"
             "\"My report\" - see all your records\n"
-            "\"Cancel am\" - if you make mistake\n\n"
+            "\"Cancel am\" - if you make mistake\n"
+            "\"I get complaint\" - if something no work\n\n"
             "Voice note or text, I go understand."
         ),
         "english": (
@@ -217,7 +218,8 @@ RESPONSES = {
             "\"Mama Joy owes me 5 thousand\"\n"
             "\"How did my shop do today?\"\n"
             "\"My report\" - see all your records\n"
-            "\"Cancel that\" - if you make a mistake\n\n"
+            "\"Cancel that\" - if you make a mistake\n"
+            "\"I have a complaint\" - if something goes wrong\n\n"
             "Voice note or text, I'll understand."
         ),
     },
@@ -442,6 +444,10 @@ RESPONSES = {
     "hint_discover_weekly": {
         "pidgin": "\n\nYou don dey record well! Try ask \"how my week go?\" or \"wetin happen this month?\" to see your progress.",
         "english": "\n\nYou're recording well! Try asking \"how was my week?\" or \"how was this month?\" to see your progress.",
+    },
+    "hint_try_voice": {
+        "pidgin": "\n\nYou fit send voice note instead of typing! Just press the mic and yarn wetin you sell - e dey faster.",
+        "english": "\n\nYou can send voice notes instead of typing! Just hold the mic and say what you sold - it's faster.",
     },
     "hint_shop_name": {
         "pidgin": "\n\nYou fit give your shop name! Just talk \"my shop name na Mama T Store\" - e go show for your report.",

@@ -577,7 +577,7 @@ async def _process_message(message: dict):
     text = await _extract_text(message, msg_type)
 
     if not text:
-        await send_text(phone, get_response("not_understood", lang))
+        await _send_response(phone, get_response("not_understood", lang), lang, include_voice=is_voice)
         return
 
     log.info(f"User text: {text}")
@@ -613,21 +613,57 @@ async def _process_message(message: dict):
         })
         echo = get_response("voice_echo", lang, text=text)
         confirm_msg = get_response("long_voice_confirm", lang)
-        await send_text(phone, echo + confirm_msg)
+        await _send_response(phone, echo + confirm_msg, lang, include_voice=True)
         return
 
-    # Fast pre-classifier — skip Gemini for simple intents
-    intent = preclassify(text)
-    if intent:
-        log.info(f"Pre-classified: {intent}")
+    # Check for pending actions that need the next message as context
+    from app.handlers import _peek_pending, _clear_pending as _clr_pending
+    pending = await _peek_pending(db, phone)
+
+    if pending and pending.get("action") == "pending_feedback":
+        await _clr_pending(db, phone)
+        intent = {"action": "feedback", "message": text}
+        log.info(f"Captured pending feedback: {text[:80]}")
+    elif pending and pending.get("action") == "price_needed":
+        # User is replying with a price to complete a sale missing its price.
+        # Parse their reply to extract the price, then merge with saved sale data.
+        await _clr_pending(db, phone)
+        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+        price = float(reply_intent.get("unit_price", 0)) or float(reply_intent.get("total", 0)) or float(reply_intent.get("sell_price", 0))
+        if not price:
+            # Try to extract a bare number (e.g. "5000")
+            import re
+            m = re.search(r"[\d,]+(?:\.\d+)?", text.replace(",", ""))
+            if m:
+                try:
+                    price = float(m.group())
+                except ValueError:
+                    pass
+        if price:
+            saved_data = pending["data"]
+            saved_data["unit_price"] = price
+            intent = {"action": "record_sale", **{k: v for k, v in saved_data.items()}}
+            log.info(f"Price reply {price} merged with pending sale: {saved_data.get('product')}")
+        else:
+            # Couldn't extract a price — re-save pending and ask again
+            from app.handlers import _save_pending
+            await _save_pending(db, phone, pending)
+            product = pending.get("data", {}).get("product", "it")
+            intent = {"action": "_price_retry", "_product": product}
+            log.info(f"Could not extract price from: {text}")
     else:
-        # Full NLU parse via Gemini
-        intent = await parse_intent(text, lang)
-        log.info(f"Intent: {intent}")
-        # If NLU failed to parse, ask for clarification instead of silent fallback
-        if intent.get("error") and intent.get("action") == "help":
-            log.warning(f"NLU parse failed: {intent['error']}")
-            intent = {"action": "_clarify"}
+        # Fast pre-classifier — skip Gemini for simple intents
+        intent = preclassify(text)
+        if intent:
+            log.info(f"Pre-classified: {intent}")
+        else:
+            # Full NLU parse via Gemini
+            intent = await parse_intent(text, lang)
+            log.info(f"Intent: {intent}")
+            # If NLU failed to parse, ask for clarification instead of silent fallback
+            if intent.get("error") and intent.get("action") == "help":
+                log.warning(f"NLU parse failed: {intent['error']}")
+                intent = {"action": "_clarify"}
 
     # Use detected language from NLU, fall back to stored preference
     lang = intent.pop("detected_language", lang)
@@ -690,6 +726,17 @@ async def _process_message(message: dict):
             {"id": "confirm_yes", "title": yes_label[:20]},
             {"id": "confirm_no", "title": no_label[:20]},
         ])
+        # Voice users should also hear the question
+        if is_voice:
+            try:
+                result = await text_to_speech(response_text, lang)
+                if isinstance(result, list):
+                    for audio_path in result:
+                        await send_audio(phone, audio_path)
+                else:
+                    await send_audio(phone, result)
+            except Exception as e:
+                log.error(f"Button prompt TTS failed: {e}")
         return
 
     # For voice messages, echo back what we heard so user can verify
@@ -831,6 +878,10 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
 
     if action == "_clarify":
         return get_response("clarify", lang)
+
+    if action == "_price_retry":
+        product = intent.get("_product", "it")
+        return get_response("sale_needs_price", lang, product=product)
 
     return get_response("not_understood", lang)
 
