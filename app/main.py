@@ -676,7 +676,7 @@ async def _process_message(message: dict):
         from app.handlers import _peek_pending, _clear_pending as _clr_pending
         pending = await _peek_pending(db, phone)
 
-        if pending and pending.get("action") in ("pending_feedback", "price_needed"):
+        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending"):
             # For pending flows, we need text — use Whisper as fallback
             try:
                 text = await transcribe(audio_bytes)
@@ -776,7 +776,7 @@ async def _process_message(message: dict):
     from app.handlers import _peek_pending, _clear_pending as _clr_pending
     pending = await _peek_pending(db, phone)
 
-    if pending and pending.get("action") in ("pending_feedback", "price_needed"):
+    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending"):
         intent = await _handle_pending_text(db, phone, text, pending, lang)
     else:
         # Fast pre-classifier — skip Gemini for simple intents
@@ -950,6 +950,30 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
             product = pending.get("data", {}).get("product", "it")
             log.info(f"Could not extract price from: {text}")
             return {"action": "_price_retry", "_product": product}
+
+    if pending.get("action") == "set_price_pending":
+        await _clr(db, phone)
+        # Extract price from bare number reply
+        import re as _re
+        price = 0
+        m = _re.search(r"[\d,]+(?:\.\d+)?", text.replace(",", ""))
+        if m:
+            try:
+                price = float(m.group())
+            except ValueError:
+                pass
+        if not price:
+            # Try parsing with NLU
+            reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+            price = float(reply_intent.get("sell_price") or reply_intent.get("unit_price") or reply_intent.get("total") or 0)
+        if price:
+            product = pending.get("product", "item")
+            log.info(f"Set price reply {price} for {product}")
+            return {"action": "set_price", "product": product, "sell_price": price, "unit": pending.get("unit", "piece")}
+        # Couldn't extract price — just pass through to normal NLU
+        log.info(f"Could not extract price from set_price reply: {text}")
+        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+        return reply_intent
 
     return {"action": "_clarify"}
 

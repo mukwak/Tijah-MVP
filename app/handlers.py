@@ -385,6 +385,14 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
         )).fetchone())[0] > 0
     if not sell_price and not has_sale_price and product_entries <= 2:
         result += get_response("hint_set_price", lang, product=product, unit=unit)
+        # Save pending so a bare number reply sets the price
+        await _save_pending(db, phone, {
+            "action": "set_price_pending",
+            "product": product,
+            "product_id": product_id,
+            "unit": unit,
+            "lang": lang,
+        })
     else:
         stock_count = (await (await db.execute(
             "SELECT COUNT(*) FROM stock_entries WHERE phone = ?", (phone,)
