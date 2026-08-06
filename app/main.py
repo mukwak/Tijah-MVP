@@ -16,7 +16,7 @@ from app.config import WHATSAPP_APP_SECRET, WHATSAPP_VERIFY_TOKEN, VERIFY_WEBHOO
 from app.database import get_db, close_db, try_mark_message_processed
 from app.whatsapp import send_text, send_audio, download_media, send_interactive_buttons
 from app.voice import transcribe, text_to_speech
-from app.nlu import parse_intent, parse_image_intent
+from app.nlu import parse_intent, parse_image_intent, parse_voice_intent
 from app.preclassifier import preclassify
 from app.responses import get_response
 from app.config import ADMIN_TOKEN
@@ -304,6 +304,33 @@ async def daily_nudge(request: Request):
         else:
             msg = get_response("nudge_evening_idle", lang)
 
+        # Weekly goal progress (if set within the last 7 days)
+        goal_cursor = await db.execute(
+            """SELECT weekly_goal, weekly_goal_set_at FROM shops WHERE phone = ?
+               AND weekly_goal IS NOT NULL
+               AND weekly_goal_set_at >= datetime('now', '+1 hours', '-7 days')""",
+            (phone,))
+        goal_row = await goal_cursor.fetchone()
+        if goal_row and goal_row[0] and goal_row[0] > 0:
+            goal_amount = goal_row[0]
+            goal_set_at = goal_row[1]
+            week_cursor = await db.execute(
+                """SELECT COALESCE(SUM(total), 0) FROM sales
+                   WHERE phone = ? AND created_at >= ?""",
+                (phone, goal_set_at))
+            week_total = (await week_cursor.fetchone())[0]
+            pct = int(week_total / goal_amount * 100)
+            if pct >= 100:
+                if lang == "pidgin":
+                    msg += f"\nYou don pass your weekly goal! {_fmt(week_total)}/{_fmt(goal_amount)} naira ({pct}%). Well done!"
+                else:
+                    msg += f"\nYou've hit your weekly goal! {_fmt(week_total)}/{_fmt(goal_amount)} naira ({pct}%). Great job!"
+            else:
+                if lang == "pidgin":
+                    msg += f"\nGoal progress: {_fmt(week_total)}/{_fmt(goal_amount)} naira ({pct}%)."
+                else:
+                    msg += f"\nGoal progress: {_fmt(week_total)}/{_fmt(goal_amount)} naira ({pct}%)."
+
         # One proactive insight per nudge — pick the most urgent
         extra_insight = ""
 
@@ -389,26 +416,50 @@ async def daily_nudge(request: Request):
                 msg += get_response("nudge_top_seller", lang,
                                     product=top[0], total=_fmt(top[1]))
 
-        # Low stock alert: products with stock tracked and quantity <= 5
+        # Low stock alert with velocity: products running low + days until stockout
         cursor = await db.execute(
-            """SELECT name, stock_qty, unit FROM products
-               WHERE phone = ? AND stock_qty > 0 AND stock_qty <= 5
-               ORDER BY stock_qty ASC LIMIT 2""",
+            """SELECT p.name, p.stock_qty, p.unit, p.id FROM products p
+               WHERE p.phone = ? AND p.stock_qty > 0 AND p.stock_qty <= 5
+               ORDER BY p.stock_qty ASC LIMIT 2""",
             (phone,),
         )
         low_stock = await cursor.fetchall()
         if low_stock:
-            items = ", ".join(f"{row[0]} ({_fmt(row[1])} {row[2] or 'left'})" for row in low_stock)
-            msg += get_response("nudge_low_stock", lang, items=items)
+            parts = []
+            for row in low_stock:
+                prod_name, stock_qty, unit, prod_id = row[0], row[1], row[2] or "left", row[3]
+                # Calculate days until stockout from weekly sales rate
+                wcursor = await db.execute(
+                    """SELECT COALESCE(SUM(quantity), 0) FROM sales
+                       WHERE phone = ? AND product_id = ?
+                       AND created_at >= datetime('now', '+1 hours', '-7 days')""",
+                    (phone, prod_id))
+                weekly_qty = (await wcursor.fetchone())[0]
+                if weekly_qty > 0:
+                    days_left = int(stock_qty / (weekly_qty / 7))
+                    if days_left <= 7:
+                        parts.append(f"{prod_name} ({_fmt(stock_qty)} {unit}, ~{days_left}d left)")
+                    else:
+                        parts.append(f"{prod_name} ({_fmt(stock_qty)} {unit})")
+                else:
+                    parts.append(f"{prod_name} ({_fmt(stock_qty)} {unit})")
+            msg += get_response("nudge_low_stock", lang, items=", ".join(parts))
 
         try:
-            await send_text(phone, msg)
             if is_voice_user:
+                # Voice user: send voice note only (saves 1 message)
                 try:
-                    audio_path = await text_to_speech(msg, lang)
-                    await send_audio(phone, audio_path)
+                    result = await text_to_speech(msg, lang)
+                    if isinstance(result, list):
+                        for audio_path in result:
+                            await send_audio(phone, audio_path)
+                    else:
+                        await send_audio(phone, result)
                 except Exception as e:
                     log.error(f"Nudge TTS failed for {phone}: {e}")
+                    await send_text(phone, msg)  # Fallback to text
+            else:
+                await send_text(phone, msg)
             sent += 1
         except Exception as e:
             log.error(f"Nudge failed for {phone}: {e}")
@@ -440,13 +491,19 @@ async def morning_nudge(request: Request):
         phone, lang, is_voice_user = shop[0], shop[1] or "english", shop[2] or 0
         msg = get_response("nudge_morning", lang)
         try:
-            await send_text(phone, msg)
             if is_voice_user:
                 try:
-                    audio_path = await text_to_speech(msg, lang)
-                    await send_audio(phone, audio_path)
+                    result = await text_to_speech(msg, lang)
+                    if isinstance(result, list):
+                        for audio_path in result:
+                            await send_audio(phone, audio_path)
+                    else:
+                        await send_audio(phone, result)
                 except Exception as e:
                     log.error(f"Morning nudge TTS failed for {phone}: {e}")
+                    await send_text(phone, msg)
+            else:
+                await send_text(phone, msg)
             sent += 1
         except Exception as e:
             log.error(f"Morning nudge failed for {phone}: {e}")
@@ -512,13 +569,19 @@ async def weekly_nudge(request: Request):
                                this_total=_fmt(this_total), this_count=this_count)
 
         try:
-            await send_text(phone, msg)
             if is_voice_user:
                 try:
-                    audio_path = await text_to_speech(msg, lang)
-                    await send_audio(phone, audio_path)
+                    result = await text_to_speech(msg, lang)
+                    if isinstance(result, list):
+                        for audio_path in result:
+                            await send_audio(phone, audio_path)
+                    else:
+                        await send_audio(phone, result)
                 except Exception as e:
                     log.error(f"Weekly nudge TTS failed for {phone}: {e}")
+                    await send_text(phone, msg)
+            else:
+                await send_text(phone, msg)
             sent += 1
         except Exception as e:
             log.error(f"Weekly nudge failed for {phone}: {e}")
@@ -573,6 +636,113 @@ async def _process_message(message: dict):
                 await _send_response(phone, response_text, lang)
                 return
 
+    # --- VOICE MESSAGE: Gemini direct STT+NLU (skip Whisper) ---
+    if is_voice:
+        audio_info = message.get("audio", {})
+        media_id = audio_info.get("id")
+        if not media_id:
+            await _send_response(phone, get_response("not_understood", lang), lang, include_voice=True)
+            return
+
+        try:
+            audio_bytes = await download_media(media_id)
+            log.info(f"Voice message: audio_size={len(audio_bytes)}")
+        except Exception as e:
+            log.error(f"Audio download error: {e}")
+            await _send_response(phone, get_response("not_understood", lang), lang, include_voice=True)
+            return
+
+        # Very long voice note (>45s): use Whisper transcription + echo-and-confirm
+        # Gemini audio input has limits; for very long notes, confirm first
+        if len(audio_bytes) > 60_000:
+            try:
+                text = await transcribe(audio_bytes)
+            except Exception as e:
+                log.error(f"Transcription error for long voice: {e}")
+                await _send_response(phone, get_response("not_understood", lang), lang, include_voice=True)
+                return
+            from app.handlers import _save_pending
+            await _save_pending(db, phone, {
+                "action": "long_voice_confirm",
+                "text": text,
+                "lang": lang,
+            })
+            echo = get_response("voice_echo", lang, text=text)
+            confirm_msg = get_response("long_voice_confirm", lang)
+            await _send_response(phone, echo + confirm_msg, lang, include_voice=True)
+            return
+
+        # Check for pending actions that need voice reply as text
+        from app.handlers import _peek_pending, _clear_pending as _clr_pending
+        pending = await _peek_pending(db, phone)
+
+        if pending and pending.get("action") in ("pending_feedback", "price_needed"):
+            # For pending flows, we need text — use Whisper as fallback
+            try:
+                text = await transcribe(audio_bytes)
+                log.info(f"Voice transcribed (for pending): {text}")
+            except Exception as e:
+                log.error(f"Transcription error: {e}")
+                await _send_response(phone, get_response("not_understood", lang), lang, include_voice=True)
+                return
+            # Handle pending feedback/price flows with transcribed text
+            intent = await _handle_pending_text(db, phone, text, pending, lang)
+        else:
+            # Normal voice: send audio directly to Gemini for STT+NLU in one call
+            intent = await parse_voice_intent(audio_bytes, lang)
+            text = intent.pop("_transcription", "")
+            log.info(f"Voice STT+NLU: transcription={text[:80] if text else '(none)'}, intent={intent}")
+
+            if intent.get("error") and intent.get("action") in ("error", "help"):
+                # Gemini couldn't parse the audio — fall back to Whisper + text NLU
+                log.warning(f"Gemini voice failed ({intent.get('error')}), falling back to Whisper")
+                try:
+                    text = await transcribe(audio_bytes)
+                    log.info(f"Whisper fallback transcribed: {text}")
+                    pre = preclassify(text)
+                    intent = pre if pre else await parse_intent(text, lang)
+                except Exception as e:
+                    log.error(f"Whisper fallback also failed: {e}")
+                    intent = {"action": "_clarify"}
+
+        # Tag as voice and set transcription for echo display
+        intent["_is_voice"] = True
+        if text:
+            intent["_voice_text"] = text
+            # Flag long voice notes for hint
+            if len(audio_bytes) > 40_000:
+                intent["_long_voice"] = True
+
+        # Use detected language from NLU
+        lang = intent.pop("detected_language", lang)
+
+        # Clear stale pending actions
+        action = intent.get("action", "")
+        if action not in ("confirm_yes", "confirm_no", "_clarify", ""):
+            from app.handlers import _clear_pending
+            await _clear_pending(db, phone)
+
+        response_text = await _route_intent(phone, intent, lang)
+
+        # Handle long voice replay
+        if response_text.startswith("__replay__:"):
+            replay_text = response_text[len("__replay__:"):]
+            log.info(f"Replaying confirmed long voice text: {replay_text[:80]}...")
+            replay_intent = preclassify(replay_text)
+            if not replay_intent:
+                replay_intent = await parse_intent(replay_text, lang)
+            replay_intent["_is_voice"] = True
+            lang = replay_intent.pop("detected_language", lang)
+            response_text = await _route_intent(phone, replay_intent, lang)
+
+        if is_new_user:
+            response_text += get_response("welcome_after_action", lang)
+
+        await _send_response(phone, response_text, lang, include_voice=True)
+        return
+
+    # --- TEXT/IMAGE MESSAGES ---
+
     # Extract text from message
     text = await _extract_text(message, msg_type)
 
@@ -602,55 +772,12 @@ async def _process_message(message: dict):
                     await send_text(phone, "I couldn't read this image clearly. Try taking a clearer photo, or type the sales yourself.")
                 return
 
-    # Very long voice note (>45s): echo transcription and ask user to confirm
-    # before processing — Whisper may have lost content at the tail end
-    if message.get("_very_long_voice"):
-        from app.handlers import _save_pending
-        await _save_pending(db, phone, {
-            "action": "long_voice_confirm",
-            "text": text,
-            "lang": lang,
-        })
-        echo = get_response("voice_echo", lang, text=text)
-        confirm_msg = get_response("long_voice_confirm", lang)
-        await _send_response(phone, echo + confirm_msg, lang, include_voice=True)
-        return
-
     # Check for pending actions that need the next message as context
     from app.handlers import _peek_pending, _clear_pending as _clr_pending
     pending = await _peek_pending(db, phone)
 
-    if pending and pending.get("action") == "pending_feedback":
-        await _clr_pending(db, phone)
-        intent = {"action": "feedback", "message": text}
-        log.info(f"Captured pending feedback: {text[:80]}")
-    elif pending and pending.get("action") == "price_needed":
-        # User is replying with a price to complete a sale missing its price.
-        # Parse their reply to extract the price, then merge with saved sale data.
-        await _clr_pending(db, phone)
-        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
-        price = float(reply_intent.get("unit_price", 0)) or float(reply_intent.get("total", 0)) or float(reply_intent.get("sell_price", 0))
-        if not price:
-            # Try to extract a bare number (e.g. "5000")
-            import re
-            m = re.search(r"[\d,]+(?:\.\d+)?", text.replace(",", ""))
-            if m:
-                try:
-                    price = float(m.group())
-                except ValueError:
-                    pass
-        if price:
-            saved_data = pending["data"]
-            saved_data["unit_price"] = price
-            intent = {"action": "record_sale", **{k: v for k, v in saved_data.items()}}
-            log.info(f"Price reply {price} merged with pending sale: {saved_data.get('product')}")
-        else:
-            # Couldn't extract a price — re-save pending and ask again
-            from app.handlers import _save_pending
-            await _save_pending(db, phone, pending)
-            product = pending.get("data", {}).get("product", "it")
-            intent = {"action": "_price_retry", "_product": product}
-            log.info(f"Could not extract price from: {text}")
+    if pending and pending.get("action") in ("pending_feedback", "price_needed"):
+        intent = await _handle_pending_text(db, phone, text, pending, lang)
     else:
         # Fast pre-classifier — skip Gemini for simple intents
         intent = preclassify(text)
@@ -668,10 +795,6 @@ async def _process_message(message: dict):
     # Use detected language from NLU, fall back to stored preference
     lang = intent.pop("detected_language", lang)
 
-    # Tag voice messages so handlers can offer name verification
-    if is_voice:
-        intent["_is_voice"] = True
-
     # Clear stale pending actions when user sends a new business message
     # (not confirm_yes/no — those need the pending action)
     action = intent.get("action", "")
@@ -681,19 +804,6 @@ async def _process_message(message: dict):
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
-
-    # Long voice replay: confirm_yes returned saved text to re-process through NLU
-    if response_text.startswith("__replay__:"):
-        replay_text = response_text[len("__replay__:"):]
-        log.info(f"Replaying confirmed long voice text: {replay_text[:80]}...")
-        replay_intent = preclassify(replay_text)
-        if not replay_intent:
-            replay_intent = await parse_intent(replay_text, lang)
-            if replay_intent.get("error") and replay_intent.get("action") == "help":
-                replay_intent = {"action": "_clarify"}
-        lang = replay_intent.pop("detected_language", lang)
-        replay_intent["_is_voice"] = True
-        response_text = await _route_intent(phone, replay_intent, lang)
 
     # Onboarding: fold welcome into the first response (one message, not two)
     if is_new_user:
@@ -726,17 +836,8 @@ async def _process_message(message: dict):
             {"id": "confirm_yes", "title": yes_label[:20]},
             {"id": "confirm_no", "title": no_label[:20]},
         ])
-        # Voice users should also hear the question
-        if is_voice:
-            try:
-                result = await text_to_speech(response_text, lang)
-                if isinstance(result, list):
-                    for audio_path in result:
-                        await send_audio(phone, audio_path)
-                else:
-                    await send_audio(phone, result)
-            except Exception as e:
-                log.error(f"Button prompt TTS failed: {e}")
+        # Interactive button message includes the text — no separate voice needed.
+        # This saves 1 message per clarification for voice users.
         return
 
     # For voice messages, echo back what we heard so user can verify
@@ -814,6 +915,61 @@ async def _extract_text(message: dict, msg_type: str) -> str | None:
     return None
 
 
+async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: str) -> dict:
+    """Handle text input when a pending action (feedback, price_needed) is waiting."""
+    from app.handlers import _clear_pending as _clr, _save_pending
+
+    if pending.get("action") == "pending_feedback":
+        await _clr(db, phone)
+        log.info(f"Captured pending feedback: {text[:80]}")
+        return {"action": "feedback", "message": text}
+
+    if pending.get("action") == "price_needed":
+        await _clr(db, phone)
+        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+        price = float(reply_intent.get("unit_price", 0)) or float(reply_intent.get("total", 0)) or float(reply_intent.get("sell_price", 0))
+        if not price:
+            import re as _re
+            m = _re.search(r"[\d,]+(?:\.\d+)?", text.replace(",", ""))
+            if m:
+                try:
+                    price = float(m.group())
+                except ValueError:
+                    pass
+        if price:
+            saved_data = pending["data"]
+            saved_data["unit_price"] = price
+            log.info(f"Price reply {price} merged with pending sale: {saved_data.get('product')}")
+            return {"action": "record_sale", **{k: v for k, v in saved_data.items()}}
+        else:
+            await _save_pending(db, phone, pending)
+            product = pending.get("data", {}).get("product", "it")
+            log.info(f"Could not extract price from: {text}")
+            return {"action": "_price_retry", "_product": product}
+
+    return {"action": "_clarify"}
+
+
+def _describe_intent(intent: dict, lang: str) -> str:
+    """Build a short human-readable description of an intent for clarification."""
+    action = intent.get("action", "")
+    product = intent.get("product", "")
+    customer = intent.get("customer", "")
+    quantity = intent.get("quantity", "")
+    pidgin = lang == "pidgin"
+
+    descriptions = {
+        "record_sale": f"record {'one' if not quantity else quantity} {product or 'item'} sale" if not pidgin else f"record say you sell {quantity or ''} {product or 'something'}",
+        "add_stock": f"add {product or 'item'} to stock" if not pidgin else f"add {product or 'something'} to your stock",
+        "check_stock": f"check your {product + ' ' if product else ''}stock" if not pidgin else f"check your {product + ' ' if product else ''}stock",
+        "check_credits": f"check what {customer or 'people'} owe{'s' if customer else ''} you" if not pidgin else f"check wetin {customer or 'people'} owe you",
+        "record_payment": f"record a payment from {customer or 'someone'}" if not pidgin else f"record say {customer or 'person'} pay you",
+        "record_credit": f"record credit for {customer or 'someone'}" if not pidgin else f"record say {customer or 'person'} owe you",
+        "daily_summary": "see your summary" if not pidgin else "check how your shop do",
+    }
+    return descriptions.get(action, f"do \"{action.replace('_', ' ')}\"")
+
+
 async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     """Route parsed intent to the appropriate handler."""
     action = intent.get("action", "help")
@@ -859,9 +1015,23 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         "split_product": handlers.handle_split_product,
         "customer_sales": handlers.handle_customer_sales,
         "compare_months": handlers.handle_compare_months,
+        "set_goal": handlers.handle_set_goal,
     }
 
     handler = handler_map.get(action)
+
+    # If Gemini flagged "clarify": true, save the guessed intent as pending
+    # and ask the user to confirm before executing
+    if intent.get("clarify") and action in handler_map:
+        from app.handlers import _save_pending
+        db = await get_db()
+        await _save_pending(db, phone, {
+            "action": "clarify_intent",
+            "guessed_intent": {k: v for k, v in intent.items() if not k.startswith("_")},
+            "lang": lang,
+        })
+        desc = _describe_intent(intent, lang)
+        return get_response("clarify_intent", lang, description=desc)
 
     if handler:
         try:
@@ -879,6 +1049,9 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     if action == "_clarify":
         return get_response("clarify", lang)
 
+    if action == "off_topic":
+        return get_response("off_topic", lang)
+
     if action == "_price_retry":
         product = intent.get("_product", "it")
         return get_response("sale_needs_price", lang, product=product)
@@ -887,7 +1060,11 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
 
 
 async def _send_response(phone: str, text: str, lang: str, include_voice: bool = False):
-    """Send response - always text, voice note only if user sent a voice message."""
+    """Send response — always text, plus voice note for voice users.
+
+    Text is always sent so low-literate users can show it to someone who reads,
+    verify numbers visually, and tap links. Voice is the primary interface they listen to.
+    """
     log.info(f"Sending response to {phone}: include_voice={include_voice}, text_len={len(text)}")
     await send_text(phone, text)
 
@@ -896,7 +1073,6 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
             log.info(f"Generating TTS for voice reply to {phone}")
             result = await text_to_speech(text, lang)
             if isinstance(result, list):
-                # Multiple audio chunks for long responses
                 log.info(f"TTS generated {len(result)} chunks, sending sequentially...")
                 for audio_path in result:
                     await send_audio(phone, audio_path)

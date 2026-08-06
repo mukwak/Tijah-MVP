@@ -259,6 +259,14 @@ RESPONSES = {
         "pidgin": "I no understand that one well. Try tell me again, like \"I sell 3 bag rice, 5 thousand.\"",
         "english": "I didn't quite get that. Try again, like \"I sold 3 bags of rice for 5 thousand.\"",
     },
+    "off_topic": {
+        "pidgin": "I be your shop assistant o! I fit help you record sales, check stock, track who owe you, and manage your shop. Wetin you sell today?",
+        "english": "I'm your shop assistant! I can help you record sales, check stock, track who owes you, and manage your shop. What did you sell today?",
+    },
+    "clarify_intent": {
+        "pidgin": "You mean say {description}? Say \"yes\" or tell me again.",
+        "english": "Did you mean to {description}? Say \"yes\" or tell me again.",
+    },
 
     # === CONFIRMATION ===
     "confirm_customer": {

@@ -21,9 +21,17 @@ _PATTERNS: list[tuple[str, dict]] = [
     (r"^(cancel|undo|remove|delete|wrong|mistake|cancel (that|am)|remove (that|am)|no no|that.s wrong)$",
      {"action": "undo"}),
 
-    # Greetings
+    # Greetings (pure greetings only — no business content)
     (r"^(hi|hello|hey|good (morning|afternoon|evening)|how far|what.s up|sup|howdy)$",
      {"action": "greeting"}),
+
+    # Thanks — treat as greeting (acknowledgement)
+    (r"^(thanks?|thank you|thank u|thanks a lot|e dey|noted|ok thanks|okay thanks)$",
+     {"action": "greeting"}),
+
+    # Ok / alright — treat as confirmation
+    (r"^(ok|okay|alright|sure|fine|ok .*|okay .*)$",
+     {"action": "confirm_yes"}),
 
     # Privacy
     (r"^(my privacy|privacy|is my data safe|my data|data privacy|about my data)$",
@@ -36,6 +44,14 @@ _PATTERNS: list[tuple[str, dict]] = [
     # What can you do (personalized feature list)
     (r"^(what (else )?(can you do|you fit do)|wetin (else )?you fit do|what else|wetin else)$",
      {"action": "what_can_you_do"}),
+
+    # Daily summary — common informal triggers
+    (r"^(how my shop( do| dey)?|how we do|how far today|wetin happen today|anything today|how.s (business|today))$",
+     {"action": "daily_summary", "period": "today"}),
+
+    # Check credits — common triggers
+    (r"^(who (dey )?owe me|my debtors?|who owe me|credit list)$",
+     {"action": "check_credits"}),
 
     # Check today's sales (did I already record?)
     (r"^(what did i (sell|record) today|wetin i sell today|did i record|have i recorded|what i sell today)$",

@@ -85,6 +85,16 @@ class SQLiteDatabase:
             await self.commit()
         except Exception:
             pass  # Column already exists
+        try:
+            await self.execute("ALTER TABLE shops ADD COLUMN weekly_goal REAL")
+            await self.commit()
+        except Exception:
+            pass
+        try:
+            await self.execute("ALTER TABLE shops ADD COLUMN weekly_goal_set_at TEXT")
+            await self.commit()
+        except Exception:
+            pass
 
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
@@ -180,6 +190,14 @@ class PostgresDatabase:
             await self._execute("ALTER TABLE shops ADD COLUMN milestones_seen TEXT", ())
         except Exception:
             pass  # Column already exists
+        try:
+            await self._execute("ALTER TABLE shops ADD COLUMN weekly_goal REAL", ())
+        except Exception:
+            pass
+        try:
+            await self._execute("ALTER TABLE shops ADD COLUMN weekly_goal_set_at TEXT", ())
+        except Exception:
+            pass
 
     async def try_mark_message_processed(self, message_id: str) -> bool:
         if not message_id:
@@ -278,7 +296,9 @@ CREATE TABLE IF NOT EXISTS shops (
     voice_user  INTEGER DEFAULT 0,
     long_voice_hinted INTEGER DEFAULT 0,
     nudge_hour  INTEGER DEFAULT 20,
-    milestones_seen TEXT
+    milestones_seen TEXT,
+    weekly_goal REAL,
+    weekly_goal_set_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS products (
@@ -410,7 +430,9 @@ CREATE TABLE IF NOT EXISTS shops (
     voice_user  INTEGER DEFAULT 0,
     long_voice_hinted INTEGER DEFAULT 0,
     nudge_hour  INTEGER DEFAULT 20,
-    milestones_seen TEXT
+    milestones_seen TEXT,
+    weekly_goal REAL,
+    weekly_goal_set_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS products (

@@ -204,6 +204,18 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         credit_note=credit_note, price_detail=price_detail,
     ) + low_stock_msg
 
+    # Repeat customer recognition (milestones: 5, 10, 20, 50 purchases)
+    if customer:
+        cursor = await db.execute(
+            "SELECT COUNT(*) FROM sales WHERE phone = ? AND LOWER(customer) = LOWER(?)",
+            (phone, customer))
+        cust_count = (await cursor.fetchone())[0]
+        if cust_count in (5, 10, 20, 50):
+            if lang == "pidgin":
+                result += f"\n{customer} don buy from you {cust_count} times! Na your loyal customer o."
+            else:
+                result += f"\n{customer} has bought from you {cust_count} times! A loyal customer."
+
     # One contextual nudge — rotate discovery hints by total sale count
     # Rule: only ONE follow-on per response (hint, milestone, or insight — never stack)
     sale_count = (await (await db.execute(
@@ -250,6 +262,12 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         result += get_response("hint_discover_check_sales", lang)
     elif sale_count == 20:
         result += get_response("hint_discover_weekly", lang)
+    elif sale_count > 30 and sale_count % 10 == 0:
+        # Sale-attached micro-insight: lightweight business insight every 10 sales
+        # Rotates through: stock velocity, revenue pace, product comparison
+        micro = await _get_sale_micro_insight(db, phone, product, product_id, lang)
+        if micro:
+            result += micro
 
     return result
 
@@ -294,6 +312,29 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     )
     if supplier_note:
         result = result.rstrip() + supplier_note
+
+    # Supplier price comparison: compare with previous purchase of the same product
+    if cost_price > 0:
+        cursor = await db.execute(
+            """SELECT cost_price, supplier FROM stock_entries
+               WHERE phone = ? AND product_id = ? AND cost_price > 0
+               ORDER BY id DESC LIMIT 1 OFFSET 1""",
+            (phone, product_id))
+        prev = await cursor.fetchone()
+        if prev and prev[0] > 0 and prev[0] != cost_price:
+            diff = cost_price - prev[0]
+            pct = int(abs(diff) / prev[0] * 100)
+            prev_supplier = prev[1] or "your previous purchase"
+            if diff > 0:
+                if lang == "pidgin":
+                    result += f"\nThis one cost {_fmt(diff)} more than {prev_supplier} ({_fmt(prev[0])}/each, +{pct}%)."
+                else:
+                    result += f"\nThat's {_fmt(diff)} more than {prev_supplier} ({_fmt(prev[0])}/each, +{pct}%)."
+            else:
+                if lang == "pidgin":
+                    result += f"\nYou save {_fmt(abs(diff))} compared to {prev_supplier} ({_fmt(prev[0])}/each, -{pct}%)."
+                else:
+                    result += f"\nYou're saving {_fmt(abs(diff))} vs {prev_supplier} ({_fmt(prev[0])}/each, -{pct}%)."
 
     # One contextual nudge — if no selling price is set, that's the natural next step
     sell_price = (await (await db.execute(
@@ -523,6 +564,10 @@ async def handle_check_stock(phone: str, data: dict, lang: str) -> str:
         else:
             row = None
         if row:
+            if row[0] <= 0:
+                if lang == "pidgin":
+                    return f"You no get {product} for stock. You fit restock am."
+                return f"No {product} in stock. You may want to restock."
             return get_response(
                 "stock_check_single", lang,
                 quantity=_fmt(row[0]), unit=row[1], product=product,
@@ -879,6 +924,17 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     if payment_total > 0:
         result += get_response("daily_summary_payments_line", lang, payment_total=_fmt(payment_total))
 
+    # Credit collection rate (monthly/all only, when credits exist)
+    if period in ("month", "all") and credit_total > 0:
+        collection_pct = int(payment_total / credit_total * 100) if credit_total > 0 else 0
+        nudge = ""
+        if collection_pct < 50:
+            nudge = ' Try "remind [name]" to send reminders.' if lang == "english" else ' Try "remind [name]" to collect.'
+        if lang == "pidgin":
+            result += f"\nCredit collection: {collection_pct}% ({_fmt(payment_total)} collected out of {_fmt(credit_total)} given).{nudge}"
+        else:
+            result += f"\nCredit collection rate: {collection_pct}% ({_fmt(payment_total)} collected of {_fmt(credit_total)} given).{nudge}"
+
     # Top products (only if more than 1 product sold)
     cursor = await db.execute(
         f"""SELECT product_name, SUM(quantity), SUM(total) FROM sales
@@ -1034,6 +1090,41 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
                 follow_on = get_response("insight_customer_concentration", lang,
                                          customer=top_cust[0], total=_fmt(top_cust[1]), pct=cust_pct)
 
+    # Seasonal pattern: compare this month's top product to same month last year
+    if not follow_on and period == "month":
+        cursor = await db.execute(
+            """SELECT MIN(created_at) FROM sales WHERE phone = ?""", (phone,))
+        first_sale = await cursor.fetchone()
+        if first_sale and first_sale[0]:
+            days_since_first = (await (await db.execute(
+                "SELECT CAST(julianday('now', '+1 hours') - julianday(?) AS INTEGER)",
+                (first_sale[0],))).fetchone())[0]
+            if days_since_first >= 90:
+                # User has 3+ months of data — check for seasonal patterns
+                cursor = await db.execute(
+                    """SELECT p.name, SUM(s.quantity) as qty FROM sales s
+                       JOIN products p ON s.product_id = p.id
+                       WHERE s.phone = ?
+                       AND strftime('%%m', s.created_at) = strftime('%%m', 'now', '+1 hours')
+                       AND s.created_at < datetime('now', '+1 hours', '-60 days')
+                       GROUP BY p.name ORDER BY qty DESC LIMIT 1""",
+                    (phone,))
+                past_top = await cursor.fetchone()
+                if past_top:
+                    cursor = await db.execute(
+                        f"""SELECT COALESCE(SUM(s.quantity), 0) FROM sales s
+                           JOIN products p ON s.product_id = p.id
+                           WHERE s.phone = ? AND {date_filter} AND p.name = ?""",
+                        (phone, past_top[0]))
+                    current_qty = (await cursor.fetchone())[0]
+                    if past_top[1] > 0 and current_qty > 0:
+                        ratio = current_qty / past_top[1]
+                        if ratio >= 1.5:
+                            if lang == "pidgin":
+                                follow_on = f"\n{past_top[0]} dey sell well this time of year! You don sell {int(ratio)}x more than before."
+                            else:
+                                follow_on = f"\n{past_top[0]} sells well this time of year! You're selling {int(ratio)}x more than before."
+
     # Report hint (fallback: only if no other insight fired and user hasn't opened report)
     if not follow_on:
         token_row = await (await db.execute(
@@ -1053,6 +1144,13 @@ async def handle_set_price(phone: str, data: dict, lang: str) -> str:
     sell_price = float(data.get("sell_price", 0))
 
     product_id = await _get_or_create_product(db, phone, product, unit, sell_price)
+
+    # Get old price before updating
+    old_price_row = await (await db.execute(
+        "SELECT sell_price FROM products WHERE id = ?", (product_id,)
+    )).fetchone()
+    old_price = old_price_row[0] if old_price_row and old_price_row[0] else 0
+
     await db.execute(
         "UPDATE products SET sell_price = ? WHERE id = ?",
         (sell_price, product_id),
@@ -1063,6 +1161,28 @@ async def handle_set_price(phone: str, data: dict, lang: str) -> str:
         "price_set", lang,
         product=product, price=_fmt(sell_price), unit=unit,
     )
+
+    # Price change impact: show projected impact based on recent sales volume
+    if old_price > 0 and old_price != sell_price:
+        cursor = await db.execute(
+            """SELECT COALESCE(SUM(quantity), 0) FROM sales
+               WHERE phone = ? AND product_id = ?
+               AND created_at >= datetime('now', '+1 hours', '-30 days')""",
+            (phone, product_id))
+        monthly_qty = (await cursor.fetchone())[0]
+        if monthly_qty > 0:
+            diff = sell_price - old_price
+            monthly_impact = int(diff * monthly_qty)
+            if diff > 0:
+                if lang == "pidgin":
+                    result += f"\nYou increase am by {_fmt(diff)} from {_fmt(old_price)}. If you sell the same amount, you go make {_fmt(monthly_impact)} more this month."
+                else:
+                    result += f"\nUp {_fmt(diff)} from {_fmt(old_price)}. At your current volume, that's {_fmt(monthly_impact)} more per month."
+            else:
+                if lang == "pidgin":
+                    result += f"\nYou reduce am by {_fmt(abs(diff))} from {_fmt(old_price)}. That na {_fmt(abs(monthly_impact))} less per month at same volume."
+                else:
+                    result += f"\nDown {_fmt(abs(diff))} from {_fmt(old_price)}. That's {_fmt(abs(monthly_impact))} less per month at current volume."
 
     # Auto-complete pending multi-sale items that needed this price
     pending = await _peek_pending(db, phone)
@@ -1138,26 +1258,6 @@ async def handle_get_report(phone: str, data: dict, lang: str) -> str:
     url = f"{base}/report/{token}"
     export_url = f"{base}/export/{token}"
     result = get_response("report_link", lang, url=url)
-    if lang == "pidgin":
-        result += f"\n\nDownload your data (CSV): {export_url}"
-    else:
-        result += f"\n\nDownload your data (CSV): {export_url}"
-
-    # Voice-friendly summary: top 3 products this month so voice-only users get value
-    cursor = await db.execute(
-        """SELECT product_name, SUM(total) FROM sales
-           WHERE phone = ? AND created_at >= datetime('now', '+1 hours', '-30 days')
-           AND product_name != '(general sales)'
-           GROUP BY product_name ORDER BY SUM(total) DESC LIMIT 3""",
-        (phone,),
-    )
-    top = await cursor.fetchall()
-    if top:
-        top_lines = ", ".join(f"{r[0]} ({_fmt(r[1])} naira)" for r in top)
-        if lang == "pidgin":
-            result += f"\n\nYour top products this month: {top_lines}."
-        else:
-            result += f"\n\nYour top products this month: {top_lines}."
 
     # No shop name yet? The natural next step is to put one on the report.
     row = await (await db.execute(
@@ -1208,6 +1308,26 @@ async def handle_set_nudge_time(phone: str, data: dict, lang: str) -> str:
     if lang == "pidgin":
         return f"Okay! I go send your evening summary by {time_str} every day."
     return f"Got it! I'll send your evening summary at {time_str} every day."
+
+
+async def handle_set_goal(phone: str, data: dict, lang: str) -> str:
+    """Set a weekly sales goal."""
+    db = await get_db()
+    amount = data.get("amount")
+    if not amount:
+        if lang == "pidgin":
+            return "How much you wan sell this week? Tell me like \"my goal na 50 thousand\"."
+        return "How much do you want to sell this week? Tell me like \"my goal is 50 thousand\"."
+
+    amount = float(amount)
+    await db.execute(
+        "UPDATE shops SET weekly_goal = ?, weekly_goal_set_at = datetime('now', '+1 hours') WHERE phone = ?",
+        (amount, phone))
+    await db.commit()
+
+    if lang == "pidgin":
+        return f"Goal set! You wan sell {_fmt(amount)} naira this week. I go track am for you."
+    return f"Goal set! Target: {_fmt(amount)} naira this week. I'll track your progress."
 
 
 async def handle_feedback(phone: str, data: dict, lang: str) -> str:
@@ -1436,6 +1556,15 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     if pending.get("action") == "long_voice_confirm":
         return "__replay__:" + pending["text"]
 
+    # Clarify intent: user confirmed our guess — execute the guessed intent
+    if pending.get("action") == "clarify_intent":
+        guessed = pending.get("guessed_intent", {})
+        guessed.pop("clarify", None)
+        guessed_action = guessed.get("action", "help")
+        # Import _route_intent to re-route the confirmed intent
+        from app.main import _route_intent
+        return await _route_intent(phone, guessed, pending.get("lang", lang))
+
     if "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
@@ -1499,6 +1628,12 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
         if lang == "pidgin":
             return "No wahala. Send another shorter voice note and I go try again."
         return "No problem. Send a shorter voice note and I'll try again."
+
+    # Clarify intent: user rejected our guess — ask them to try again
+    if pending.get("action") == "clarify_intent":
+        if lang == "pidgin":
+            return "No wahala. Try tell me again wetin you wan do."
+        return "No problem. Try telling me again what you'd like to do."
 
     if "data" not in pending:
         if lang == "pidgin":
@@ -2011,15 +2146,32 @@ async def handle_product_profit(phone: str, data: dict, lang: str) -> str:
     label = period_labels.get(period, "This month")
 
     lines = []
+    best_margin_name = ""
+    best_margin_pct = -1
+    best_revenue_name = ""
+    best_revenue_val = 0
     for name, revenue, cost, qty in rows:
         profit = revenue - cost
         margin = int((profit / revenue) * 100) if revenue > 0 else 0
         lines.append(f"  {name}: {_fmt(profit)} naira profit ({margin}% margin)")
+        if margin > best_margin_pct:
+            best_margin_pct = margin
+            best_margin_name = name
+        if revenue > best_revenue_val:
+            best_revenue_val = revenue
+            best_revenue_name = name
 
     product_list = "\n".join(lines)
-    if lang == "pidgin":
-        return f"{label} profit per product:\n{product_list}"
-    return f"{label} profit per product:\n{product_list}"
+    result = f"{label} profit per product:\n{product_list}"
+
+    # Highlight best margin product if it differs from highest revenue
+    if len(rows) > 1 and best_margin_name and best_margin_name != best_revenue_name:
+        if lang == "pidgin":
+            result += f"\n\n{best_margin_name} get the best margin ({best_margin_pct}%). Na your real money-maker!"
+        else:
+            result += f"\n\n{best_margin_name} has the best margin ({best_margin_pct}%). That's your real money-maker!"
+
+    return result
 
 
 async def handle_split_product(phone: str, data: dict, lang: str) -> str:
@@ -2449,12 +2601,25 @@ async def handle_what_can_you_do(phone: str, data: dict, lang: str) -> str:
     tips.append('"Cancel am"' if is_pidgin else '"Cancel that" — fix mistakes')
     if sale_count >= 3:
         tips.append('"I sell rice yesterday"' if is_pidgin else '"I sold rice yesterday" — backdate')
+    # Growth features for established users
+    if sale_count >= 20:
+        tips.append('"Compare months"' if is_pidgin else '"Compare months" — track growth')
+    if sale_count >= 15 and stock_count > 0:
+        tips.append('"Profit per product"' if is_pidgin else '"Profit per product" — find your money-maker')
+    if credit_count >= 2:
+        cursor = await db.execute(
+            "SELECT customer FROM credits WHERE phone = ? AND settled = 0 LIMIT 1", (phone,))
+        cust = await cursor.fetchone()
+        if cust:
+            tips.append(f'"Remind {cust[0]}"' if is_pidgin else f'"Remind {cust[0]}" — send debt reminder')
+    if sale_count >= 10:
+        tips.append('"My goal na 50 thousand"' if is_pidgin else '"My goal is 50 thousand" — set weekly target')
 
     if not tips:
         return get_response("help", lang)
 
     header = "Here na some things I fit do for you:" if is_pidgin else "Here are some things I can do for you:"
-    tip_list = "\n".join(f"- {t}" for t in tips[:6])  # Max 6 tips
+    tip_list = "\n".join(f"- {t}" for t in tips[:7])  # Max 7 tips
     footer = "\nJust yarn to me normal!" if is_pidgin else "\nJust talk to me normally!"
 
     return f"{header}\n\n{tip_list}{footer}"
@@ -2498,6 +2663,74 @@ async def _check_milestone(db, phone, sale_count, sale_total, lang):
             return get_response("milestone_revenue", lang, amount=_fmt(m))
 
     return None
+
+
+async def _get_sale_micro_insight(db, phone, product, product_id, lang):
+    """Return a lightweight business insight to attach to a sale confirmation.
+
+    Rotates through insight types to avoid repetition. Only fires every 10 sales
+    after 30 total, keeping messages lean for cost efficiency.
+    """
+    sale_count = (await (await db.execute(
+        "SELECT COUNT(*) FROM sales WHERE phone = ?", (phone,)
+    )).fetchone())[0]
+
+    # Rotate insight type based on sale count
+    insight_type = (sale_count // 10) % 3
+
+    if insight_type == 0:
+        # Stock velocity: how fast current product is selling
+        cursor = await db.execute(
+            """SELECT stock_qty, unit FROM products WHERE id = ? AND stock_qty > 0""",
+            (product_id,))
+        stock_row = await cursor.fetchone()
+        if stock_row and stock_row[0] > 0:
+            cursor = await db.execute(
+                """SELECT COALESCE(SUM(quantity), 0) FROM sales
+                   WHERE phone = ? AND product_id = ?
+                   AND created_at >= datetime('now', '+1 hours', '-7 days')""",
+                (phone, product_id))
+            weekly_qty = (await cursor.fetchone())[0]
+            if weekly_qty > 0:
+                days_left = int(stock_row[0] / (weekly_qty / 7)) if weekly_qty > 0 else 0
+                if 0 < days_left <= 7:
+                    if lang == "pidgin":
+                        return f"\n{product} stock go finish in about {days_left} day{'s' if days_left != 1 else ''}."
+                    return f"\nAt this pace, your {product} stock will last about {days_left} day{'s' if days_left != 1 else ''}."
+
+    elif insight_type == 1:
+        # Revenue pace: how this month compares to target
+        cursor = await db.execute(
+            """SELECT COALESCE(SUM(total), 0) FROM sales
+               WHERE phone = ? AND created_at >= datetime('now', '+1 hours', 'start of month')""",
+            (phone,))
+        month_total = (await cursor.fetchone())[0]
+        if month_total > 0:
+            from datetime import datetime, timedelta
+            now = datetime.utcnow() + timedelta(hours=1)
+            day_of_month = now.day
+            if day_of_month >= 5:
+                daily_avg = month_total / day_of_month
+                projected = int(daily_avg * 30)
+                if lang == "pidgin":
+                    return f"\nThis month so far: {_fmt(month_total)} naira. If you keep am up, you fit reach {_fmt(projected)} by month end."
+                return f"\nThis month so far: {_fmt(month_total)} naira. On pace for {_fmt(projected)} by month end."
+
+    elif insight_type == 2:
+        # Top product comparison
+        cursor = await db.execute(
+            """SELECT p.name, COALESCE(SUM(s.total), 0) as rev FROM sales s
+               JOIN products p ON s.product_id = p.id
+               WHERE s.phone = ? AND s.created_at >= datetime('now', '+1 hours', '-30 days')
+               GROUP BY p.name ORDER BY rev DESC LIMIT 1""",
+            (phone,))
+        top = await cursor.fetchone()
+        if top and top[0] != product and top[1] > 0:
+            if lang == "pidgin":
+                return f"\nYour biggest money maker this month na {top[0]} ({_fmt(top[1])} naira)."
+            return f"\nYour top seller this month is {top[0]} ({_fmt(top[1])} naira)."
+
+    return ""
 
 
 async def _get_discovery_hint(db, phone, lang):
@@ -2665,6 +2898,12 @@ async def handle_compare_months(phone: str, data: dict, lang: str) -> str:
 
     if this["sales_count"] == 0 and last["sales_count"] == 0:
         return get_response("no_activity", lang)
+
+    # No last month data — can't compare
+    if last["sales_count"] == 0 and last["expenses"] == 0:
+        if lang == "pidgin":
+            return f"This month you sell {_fmt(this['sales_total'])} naira ({this['sales_count']} sales). No data from last month to compare. Keep recording and check again next month!"
+        return f"This month you sold {_fmt(this['sales_total'])} naira ({this['sales_count']} sales). No data from last month to compare. Keep recording and check again next month!"
 
     def _arrow(current, previous):
         if previous == 0:
