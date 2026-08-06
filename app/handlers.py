@@ -68,20 +68,34 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     elif total and not unit_price:
         unit_price = total
 
-    # If no price given, try to use stored sell_price
+    # If no price given, try to use stored sell_price or last sale price
     if not total and not unit_price:
         existing = await _find_product(db, phone, product)
         if existing and existing[2] > 0:
             unit_price = existing[2]
             total = unit_price * quantity
         else:
-            # Save sale context so price reply can complete it
-            await _save_pending(db, phone, {
-                "action": "price_needed",
-                "data": data,
-                "lang": lang,
-            })
-            return get_response("sale_needs_price", lang, product=product)
+            # No stored sell_price — check last sale price for this product
+            last_price_row = None
+            if existing:
+                cursor = await db.execute(
+                    "SELECT unit_price FROM sales WHERE phone = ? AND product_id = ? AND unit_price > 0 ORDER BY id DESC LIMIT 1",
+                    (phone, existing[0]))
+                last_price_row = await cursor.fetchone()
+            if last_price_row and last_price_row[0] > 0:
+                # Use last sale price but tell the user so they can correct
+                unit_price = last_price_row[0]
+                total = unit_price * quantity
+                data["_used_last_price"] = True
+                data["_last_unit_price"] = unit_price
+            else:
+                # No previous price at all — must ask
+                await _save_pending(db, phone, {
+                    "action": "price_needed",
+                    "data": data,
+                    "lang": lang,
+                })
+                return get_response("sale_needs_price", lang, product=product)
 
     # Price ambiguity: "3 bags for 25 thousand" — each or total?
     if data.get("price_ambiguous") and quantity > 1:
@@ -203,6 +217,14 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
         quantity=_fmt(quantity), unit=unit, product=product, total=_fmt(total),
         credit_note=credit_note, price_detail=price_detail,
     ) + low_stock_msg
+
+    # If we used last sale price (no stored sell_price), tell the user
+    if data.get("_used_last_price"):
+        last_up = data["_last_unit_price"]
+        if lang == "pidgin":
+            result += f"\nI use the last price ({_fmt(last_up)} naira). If e don change, tell me \"set {product} price to [new price]\"."
+        else:
+            result += f"\nI used the last price ({_fmt(last_up)} naira). If it changed, say \"set {product} price to [new price]\"."
 
     # Repeat customer recognition (milestones: 5, 10, 20, 50 purchases)
     if customer:
