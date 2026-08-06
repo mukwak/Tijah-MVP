@@ -14,11 +14,14 @@ SYSTEM_PROMPT = """You are Tijah, a smart shop assistant for Nigerian market tra
 You understand Nigerian English and Nigerian Pidgin perfectly.
 Messages often come from voice-to-text and may contain transcription errors — interpret generously.
 
-Your job: parse the user's message into a structured JSON action.
+Your job: parse the user's message into a SINGLE JSON object — never return an array.
+For multiple SAME-TYPE items (e.g. sold rice and beans), use multi_sale/multi_stock/multi_expense.
+For mixed requests (e.g. "I bought 10 indomie, how many do I have?"), pick the ACTION (add_stock) not the question.
 
 IMPORTANT — These users are often LOW-LITERATE. They will NOT use structured vocabulary.
 They may skip verbs, jumble word order, use slang, or speak in fragments.
 Always try your BEST GUESS at what they mean. When unsure, return your best guess AND set "clarify": true.
+Only set "clarify": true when genuinely ambiguous. Clear intents like "I sold 2 indomie" should NOT need clarification.
 
 == MOST COMMON ACTIONS (90% of messages) ==
 
@@ -332,6 +335,7 @@ async def parse_voice_intent(audio_bytes: bytes, language: str = "english") -> d
             "temperature": 0.1,
             "maxOutputTokens": 1024,
             "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -347,7 +351,7 @@ async def parse_voice_intent(audio_bytes: bytes, language: str = "english") -> d
 
 
 async def _parse_with_gemini(text: str, language: str) -> dict:
-    """Parse using Gemini 2.0 Flash - extremely cheap."""
+    """Parse using Gemini Flash - extremely cheap."""
     url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_MODEL}:generateContent?key={GEMINI_API_KEY}"
 
     payload = {
@@ -358,6 +362,7 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
             "temperature": 0.1,
             "maxOutputTokens": 1024,
             "responseMimeType": "application/json",
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
@@ -430,36 +435,53 @@ def _parse_json_lenient(text: str) -> dict:
     """Parse JSON leniently — handle comments, trailing commas, truncation from Gemini."""
     import logging
     log = logging.getLogger("tijah")
-    try:
-        return json.loads(text)
-    except json.JSONDecodeError:
-        pass
+
+    def _try_parse(s):
+        try:
+            return json.loads(s)
+        except json.JSONDecodeError:
+            return None
+
+    def _unwrap(obj):
+        """If result is a list, return the first object."""
+        if isinstance(obj, list) and obj:
+            return obj[0] if isinstance(obj[0], dict) else {"action": "help"}
+        if isinstance(obj, dict):
+            return obj
+        return {"action": "help"}
+
+    result = _try_parse(text)
+    if result is not None:
+        return _unwrap(result)
+
     # Strip // and /* */ comments
     cleaned = re.sub(r'//[^\n]*', '', text)
     cleaned = re.sub(r'/\*.*?\*/', '', cleaned, flags=re.DOTALL)
     # Remove trailing commas before } or ]
     cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
-    try:
-        return json.loads(cleaned)
-    except json.JSONDecodeError:
-        pass
-    # Truncated JSON recovery: close unterminated strings and braces
+    result = _try_parse(cleaned)
+    if result is not None:
+        return _unwrap(result)
+
+    # Truncated JSON recovery
     fixed = cleaned.rstrip()
+    # Remove truncated key-value pair (e.g. `"quantity":` with no value)
+    fixed = re.sub(r',?\s*"[^"]*":\s*$', '', fixed)
     # Close unterminated string
     quote_count = fixed.count('"') - fixed.count('\\"')
     if quote_count % 2 == 1:
         fixed += '"'
+    # Remove trailing comma
+    fixed = re.sub(r',\s*$', '', fixed)
     # Close missing braces/brackets
     open_braces = fixed.count('{') - fixed.count('}')
     open_brackets = fixed.count('[') - fixed.count(']')
-    # Remove trailing comma before we close
-    fixed = re.sub(r',\s*$', '', fixed)
     fixed += ']' * max(0, open_brackets)
     fixed += '}' * max(0, open_braces)
-    try:
-        result = json.loads(fixed)
-        log.info(f"Recovered truncated JSON: {result}")
-        return result
-    except json.JSONDecodeError as e:
-        log.warning(f"JSON parse failed even after recovery. Raw: {text[:200]}")
-        return {"action": "help", "error": str(e)}
+    result = _try_parse(fixed)
+    if result is not None:
+        log.info(f"Recovered truncated JSON: {_unwrap(result)}")
+        return _unwrap(result)
+
+    log.warning(f"JSON parse failed even after recovery. Raw: {text[:200]}")
+    return {"action": "help", "error": "Could not parse response"}
