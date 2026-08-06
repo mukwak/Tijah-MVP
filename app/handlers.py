@@ -49,10 +49,10 @@ def _resolve_when(when: str) -> str | None:
 async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
-    quantity = float(data.get("quantity", 1))
+    quantity = float(data.get("quantity") or 1)
     unit = data.get("unit") or "piece"
-    total = float(data.get("total", 0))
-    unit_price = float(data.get("unit_price", 0))
+    total = float(data.get("total") or 0)
+    unit_price = float(data.get("unit_price") or 0)
     customer = data.get("customer")
     is_credit = data.get("is_credit", False)
 
@@ -275,9 +275,9 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
 async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
-    quantity = float(data.get("quantity", 1))
+    quantity = float(data.get("quantity") or 1)
     unit = data.get("unit") or "piece"
-    cost_price = float(data.get("cost_price", 0))
+    cost_price = float(data.get("cost_price") or 0)
 
     supplier = (data.get("supplier") or "").strip() or None
 
@@ -359,7 +359,7 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
 async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     customer = data.get("customer", "Customer")
-    amount = float(data.get("amount", 0))
+    amount = float(data.get("amount") or 0)
     note = data.get("note", "")
 
     # Duplicate detection: if the user just got a voice name check and is now
@@ -437,7 +437,7 @@ async def handle_record_credit(phone: str, data: dict, lang: str) -> str:
 async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     customer = data.get("customer", "Customer")
-    amount = float(data.get("amount", 0))
+    amount = float(data.get("amount") or 0)
 
     # Check for similar existing customer unless a pending confirmation already resolved it.
     matched_name, match_type = (customer, None)
@@ -518,8 +518,8 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
 async def handle_payment_and_credit(phone: str, data: dict, lang: str) -> str:
     """Handle a combined payment + new credit for the same customer."""
     customer = data.get("customer", "Customer")
-    payment_amount = float(data.get("payment_amount", 0))
-    credit_amount = float(data.get("credit_amount", 0))
+    payment_amount = float(data.get("payment_amount") or 0)
+    credit_amount = float(data.get("credit_amount") or 0)
     credit_note = data.get("credit_note", "")
 
     # Process the payment first
@@ -706,7 +706,7 @@ async def handle_check_payments(phone: str, data: dict, lang: str) -> str:
 async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     description = data.get("description", "expense")
-    amount = float(data.get("amount", 0))
+    amount = float(data.get("amount") or 0)
     category = data.get("category", "other")
 
     await db.execute(
@@ -1141,7 +1141,7 @@ async def handle_set_price(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     product = data.get("product", "item").lower()
     unit = data.get("unit") or "piece"
-    sell_price = float(data.get("sell_price", 0))
+    sell_price = float(data.get("sell_price") or 0)
 
     product_id = await _get_or_create_product(db, phone, product, unit, sell_price)
 
@@ -1429,7 +1429,7 @@ async def handle_edit_credit(phone: str, data: dict, lang: str) -> str:
     """Correct a credit amount for a customer."""
     db = await get_db()
     customer = data.get("customer", "")
-    new_amount = float(data.get("new_amount", 0))
+    new_amount = float(data.get("new_amount") or 0)
 
     if not customer or not new_amount:
         if lang == "pidgin":
@@ -1440,7 +1440,7 @@ async def handle_edit_credit(phone: str, data: dict, lang: str) -> str:
     if match_type:
         customer = matched
 
-    old_amount = float(data.get("old_amount", 0))
+    old_amount = float(data.get("old_amount") or 0)
 
     # If old_amount is given, find that specific credit; otherwise find most recent
     if old_amount:
@@ -2523,7 +2523,7 @@ async def handle_delete_data_confirmed(phone: str, data: dict, lang: str) -> str
 async def handle_record_bulk_sale(phone: str, data: dict, lang: str) -> str:
     """Record a lump-sum daily total without specific products."""
     db = await get_db()
-    total = float(data.get("total", 0))
+    total = float(data.get("total") or 0)
     if total <= 0:
         if lang == "pidgin":
             return "How much you sell? Tell me the amount."

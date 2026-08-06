@@ -828,10 +828,14 @@ async def _process_message(message: dict):
             # Credit clarification
             yes_label = "Cash" if lang == "english" else "Na cash"
             no_label = "Credit" if lang == "english" else "Na credit"
-        else:
+        elif "same person" in response_text or "na the same person" in response_text:
             # Customer name confirmation
             yes_label = "Yes, same person" if lang == "english" else "Yes, na dem"
             no_label = "No, new person" if lang == "english" else "No, another person"
+        else:
+            # Generic clarification (e.g. clarify_intent)
+            yes_label = "Yes" if lang == "english" else "Yes"
+            no_label = "No" if lang == "english" else "No"
         await send_interactive_buttons(phone, response_text, [
             {"id": "confirm_yes", "title": yes_label[:20]},
             {"id": "confirm_no", "title": no_label[:20]},
