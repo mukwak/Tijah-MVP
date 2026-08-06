@@ -39,6 +39,25 @@ def check(name, condition, detail=""):
         failed += 1
 
 
+async def do_undo(phone, lang="english", pick=1):
+    """Helper: complete the full undo flow (list -> pick -> confirm)."""
+    from app.main import _handle_pending_text
+    db = await get_db()
+    # Step 1: show list
+    r = await _route_intent(phone, {"action": "undo"}, lang)
+    # Step 2: pick entry
+    pending = await _peek_pending(db, phone)
+    if pending and pending.get("action") == "delete_pick":
+        intent = await _handle_pending_text(db, phone, str(pick), pending, lang)
+        r = await _route_intent(phone, intent, lang)
+        # Step 3: confirm
+        pending = await _peek_pending(db, phone)
+        if pending and pending.get("action") == "delete_confirm":
+            intent = await _handle_pending_text(db, phone, "yes", pending, lang)
+            r = await _route_intent(phone, intent, lang)
+    return r
+
+
 async def run():
     db = await get_db()
     print(f"DB backend: {db.backend}")
@@ -145,8 +164,7 @@ async def run():
 
     # === TEST 12: Undo ===
     print("\n--- TEST 12: Undo ---")
-    intent = {"action": "undo"}
-    resp = await _route_intent(PHONE, intent, "english")
+    resp = await do_undo(PHONE)
     check("Undo confirmed", "Removed" in resp or "remove" in resp.lower())
 
     # === TEST 13: Pre-classifier ===
@@ -2217,8 +2235,8 @@ async def run():
     check("S3 monthly has top products", "braiding" in resp.lower() or "weaving" in resp.lower())
     s3_insights.append("used: summary")
 
-    # Undo a mistake -- will undo the most recent action (could be sale, expense, etc.)
-    resp = await _route_intent(S3, {"action": "undo"}, "english")
+    # Undo a mistake -- full list+pick+confirm flow
+    resp = await do_undo(S3)
     check("S3 undo works", "removed" in resp.lower() or "deleted" in resp.lower() or "undone" in resp.lower() or "Removed" in resp)
     s3_insights.append("used: undo")
 
@@ -2811,7 +2829,7 @@ async def run():
     r3_insights.append("used: mark credit")
 
     # Undo
-    resp = await _route_intent(R3, {"action": "undo"}, "english")
+    resp = await do_undo(R3)
     check("R3 undo works", "Removed" in resp or "removed" in resp.lower())
     r3_insights.append("used: undo")
 
@@ -3482,7 +3500,7 @@ async def run():
     u3_insights.append("hint: shop name")
 
     # Undo the last sale
-    resp = await _route_intent(U3, {"action": "undo"}, "english")
+    resp = await do_undo(U3)
     check("U3 undo works", "Removed" in resp or "remove" in resp.lower())
     u3_insights.append("used: undo")
 
@@ -6389,7 +6407,7 @@ async def run():
     w_insights[W2].append("milestone_25")
 
     # Undo
-    r = await _route_intent(W2, {"action": "undo"}, "english")
+    r = await do_undo(W2)
     check("W2 undo", "removed" in r.lower() or "undone" in r.lower() or "undo" in r.lower())
     w_sales[W2] -= 1
 
@@ -7042,8 +7060,8 @@ async def run():
     u_features_discovered[U1].add("check_sales")
 
     # Undo last sale
-    r = await _route_intent(U1, {"action": "undo", "_is_voice": True}, "pidgin")
-    check("U1 undo works", "undo" in r.lower() or "cancel" in r.lower() or "remove" in r.lower())
+    r = await do_undo(U1, "pidgin")
+    check("U1 undo works", "remove" in r.lower() or "Removed" in r)
     u_sales[U1] -= 1
     u_features_discovered[U1].add("undo")
 
@@ -7983,8 +8001,8 @@ async def run():
     r16_features[T1].add("check_sales")
 
     # Undo
-    r = await _route_intent(T1, {"action": "undo"}, "pidgin")
-    check("R16 T1 undo works", "undo" in r.lower() or "cancel" in r.lower() or "remove" in r.lower())
+    r = await do_undo(T1, "pidgin")
+    check("R16 T1 undo works", "remove" in r.lower() or "Removed" in r)
     r16_sales[T1] -= 1
     r16_features[T1].add("undo")
 

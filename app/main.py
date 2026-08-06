@@ -676,7 +676,7 @@ async def _process_message(message: dict):
         from app.handlers import _peek_pending, _clear_pending as _clr_pending
         pending = await _peek_pending(db, phone)
 
-        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick"):
+        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm"):
             # For pending flows, we need text — use Whisper as fallback
             try:
                 text = await transcribe(audio_bytes)
@@ -776,7 +776,7 @@ async def _process_message(message: dict):
     from app.handlers import _peek_pending, _clear_pending as _clr_pending
     pending = await _peek_pending(db, phone)
 
-    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick"):
+    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm"):
         intent = await _handle_pending_text(db, phone, text, pending, lang)
     else:
         # Fast pre-classifier — skip Gemini for simple intents
@@ -985,9 +985,47 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
             if 1 <= pick <= len(entries):
                 chosen = entries[pick - 1]
                 log.info(f"Delete pick #{pick}: {chosen['table']} id={chosen['id']} {chosen['desc']}")
-                return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
+                # Save for confirmation
+                await _save_pending(db, phone, {
+                    "action": "delete_confirm",
+                    "entry": chosen,
+                    "lang": pending.get("lang", lang),
+                })
+                from app.handlers import _fmt
+                desc = chosen['desc']
+                amt = _fmt(chosen['amount']) if chosen['amount'] else "0"
+                p_lang = pending.get("lang", lang)
+                if p_lang == "pidgin":
+                    return {"action": "_direct_response", "_text": f"You wan delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
+                return {"action": "_direct_response", "_text": f"Delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
         # Invalid number — just pass through
         log.info(f"Invalid delete pick: {text}")
+
+    if pending.get("action") == "delete_confirm":
+        await _clr(db, phone)
+        # Check if user said yes/no
+        lower = text.lower().strip()
+        if lower in ("yes", "yeah", "yep", "sure", "ok", "okay", "confirm"):
+            chosen = pending.get("entry", {})
+            log.info(f"Delete confirmed: {chosen['table']} id={chosen['id']} {chosen['desc']}")
+            return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
+        elif lower in ("no", "nah", "cancel", "nope", "stop"):
+            p_lang = pending.get("lang", lang)
+            if p_lang == "pidgin":
+                return {"action": "_direct_response", "_text": "No wahala. Nothing deleted."}
+            return {"action": "_direct_response", "_text": "OK, nothing deleted."}
+        # If unclear, try NLU
+        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+        if reply_intent.get("action") == "confirm_yes":
+            chosen = pending.get("entry", {})
+            return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
+        if reply_intent.get("action") == "confirm_no":
+            p_lang = pending.get("lang", lang)
+            if p_lang == "pidgin":
+                return {"action": "_direct_response", "_text": "No wahala. Nothing deleted."}
+            return {"action": "_direct_response", "_text": "OK, nothing deleted."}
+        # Pass through
+        return reply_intent
 
     return {"action": "_clarify"}
 
@@ -1061,6 +1099,10 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     }
 
     handler = handler_map.get(action)
+
+    # Direct response — used by delete confirmation flow
+    if action == "_direct_response":
+        return intent.get("_text", "")
 
     # If Gemini flagged "clarify": true, save the guessed intent as pending
     # and ask the user to confirm before executing.

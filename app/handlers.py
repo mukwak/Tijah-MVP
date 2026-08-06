@@ -622,7 +622,7 @@ async def handle_check_stock(phone: str, data: dict, lang: str) -> str:
         return get_response("stock_empty", lang)
 
     cursor = await db.execute(
-        "SELECT name, stock_qty, unit, sell_price FROM products WHERE phone = ? AND name != '(general sales)' ORDER BY name",
+        "SELECT name, stock_qty, unit, sell_price FROM products WHERE phone = ? AND name NOT LIKE '(general sales)%' AND name NOT LIKE 'daily total%' ORDER BY name",
         (phone,),
     )
     rows = await cursor.fetchall()
@@ -986,6 +986,7 @@ async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
     cursor = await db.execute(
         f"""SELECT product_name, SUM(quantity), SUM(total) FROM sales
            WHERE phone = ? AND {date_filter}
+           AND product_name NOT LIKE 'daily total%' AND product_name != '(general sales)'
            GROUP BY product_name ORDER BY SUM(total) DESC LIMIT 3""",
         (phone,),
     )
@@ -1890,86 +1891,92 @@ async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
 
 
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
-    """Undo the last recorded action, or show list for specific deletion."""
+    """Undo/delete: always show what will be deleted and ask for confirmation."""
     db = await get_db()
 
-    # Optional product filter: "undo the rice sale" / "delete general sales"
     product_filter = data.get("product")
     if product_filter:
         product_filter = _normalize_product_name(product_filter)
 
-    # If user asks to delete a specific product's entries (not just "cancel that"),
-    # show a numbered list so they can pick which one to remove
-    quantity = data.get("quantity")
-    if product_filter and (quantity or data.get("_show_list")):
-        return await _show_delete_list(db, phone, product_filter, lang)
-
-    # Optional time filter: "undo the sale from yesterday"
+    # Time filter
     when_filter = data.get("when")
     when_date = None
     if when_filter and when_filter != "today":
         resolved = _resolve_when(when_filter)
         if resolved:
-            when_date = resolved[:10]  # just the date part YYYY-MM-DD
-    elif when_filter == "today" or not when_filter:
-        # No date filter — search all time
-        when_date = None
+            when_date = resolved[:10]
 
-    # Find the most recent action across all tables
-    latest, latest_table = await _find_latest_entry(db, phone, product_filter, when_date)
-
-    if not latest:
-        if lang == "pidgin":
-            return "Nothing to undo. You never record anything yet."
-        return "Nothing to undo. You haven't recorded anything yet."
-
-    return await _delete_entry(db, phone, latest, latest_table, lang)
+    # Always show a list of matching entries for the user to pick from
+    return await _show_delete_list(db, phone, product_filter, when_date, lang)
 
 
-async def _show_delete_list(db, phone, product_filter, lang):
-    """Show numbered list of entries matching a product for selective deletion."""
-    # Search sales and stock_entries for matching product
+async def _show_delete_list(db, phone, product_filter, when_date, lang):
+    """Show numbered list of recent entries for selective deletion."""
     entries = []
-    for table, desc_col, amt_col in [("sales", "product_name", "total"), ("stock_entries", "product_name", "cost_price")]:
+    search_tables = [
+        ("sales", "product_name", "total"),
+        ("stock_entries", "product_name", "cost_price"),
+        ("expenses", "description", "amount"),
+    ]
+
+    for table, desc_col, amt_col in search_tables:
+        where = "phone = ?"
+        params = [phone]
+        if product_filter:
+            where += f" AND LOWER({desc_col}) LIKE ?"
+            params.append(f"%{product_filter}%")
+        if when_date:
+            where += " AND date(created_at) = ?"
+            params.append(when_date)
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amt_col}, created_at, quantity FROM {table} "
-            f"WHERE phone = ? AND LOWER({desc_col}) LIKE ? "
-            f"ORDER BY created_at DESC LIMIT 10",
-            (phone, f"%{product_filter}%"),
+            f"WHERE {where} ORDER BY created_at DESC LIMIT 10"
+            if table != "expenses" else
+            f"SELECT id, {desc_col}, {amt_col}, created_at, 1 FROM {table} "
+            f"WHERE {where} ORDER BY created_at DESC LIMIT 10",
+            tuple(params),
         )
         rows = await cursor.fetchall()
+        label_map = {"sales": "sale", "stock_entries": "stock", "expenses": "expense"}
         for r in rows:
-            label = "sale" if table == "sales" else "stock"
             entries.append({
                 "table": table, "id": r[0], "desc": r[1],
                 "amount": r[2], "date": r[3][:10] if r[3] else "",
-                "qty": r[4], "label": label,
+                "qty": r[4], "label": label_map[table],
             })
 
     if not entries:
         if lang == "pidgin":
-            return f"I no find any {product_filter} record to delete."
-        return f"No {product_filter} entries found to delete."
+            return "Nothing to delete. You never record anything yet."
+        return "Nothing to delete. You haven't recorded anything yet."
 
-    # Sort by date desc
+    # Sort by date desc, then id desc
     entries.sort(key=lambda e: e["date"], reverse=True)
-    entries = entries[:10]  # max 10
+    entries = entries[:10]
 
     lines = []
-    if lang == "pidgin":
-        lines.append(f"Which {product_filter} record you wan delete?")
+    if product_filter:
+        if lang == "pidgin":
+            lines.append(f"Which {product_filter} record you wan delete?")
+        else:
+            lines.append(f"Which {product_filter} entry do you want to delete?")
     else:
-        lines.append(f"Which {product_filter} entry do you want to delete?")
+        if lang == "pidgin":
+            lines.append("Which record you wan delete?")
+        else:
+            lines.append("Which entry do you want to delete?")
 
     for i, e in enumerate(entries, 1):
-        lines.append(f"  {i}. {e['label']}: {_fmt(e['qty'])} x {e['desc']} = {_fmt(e['amount'])} naira ({e['date']})")
+        if e["label"] == "expense":
+            lines.append(f"  {i}. {e['label']}: {e['desc']} = {_fmt(e['amount'])} naira ({e['date']})")
+        else:
+            lines.append(f"  {i}. {e['label']}: {_fmt(e['qty'])} x {e['desc']} = {_fmt(e['amount'])} naira ({e['date']})")
 
     if lang == "pidgin":
-        lines.append("\nTell me the number (e.g. \"delete 1\").")
+        lines.append("\nTell me the number. Say \"cancel\" if you no wan delete anything.")
     else:
-        lines.append("\nTell me the number (e.g. \"delete 1\").")
+        lines.append("\nTell me the number. Say \"cancel\" if you don't want to delete.")
 
-    # Save the list as pending so we can match the number
     await _save_pending(db, phone, {
         "action": "delete_pick",
         "entries": entries,
@@ -2637,7 +2644,11 @@ async def handle_record_bulk_sale(phone: str, data: dict, lang: str) -> str:
         return "How much did you sell? Tell me the amount."
 
     when = _resolve_when(data.get("when", "today"))
-    product_name = "(general sales)"
+    # Use date-stamped name so each bulk sale is identifiable
+    from datetime import datetime, timedelta
+    now_wat = datetime.utcnow() + timedelta(hours=1)
+    date_label = now_wat.strftime("%d %b")  # e.g. "06 Aug"
+    product_name = f"daily total ({date_label})"
     product_id = await _get_or_create_product(db, phone, product_name, "lump sum", 0)
 
     if when:
