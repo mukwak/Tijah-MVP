@@ -6832,16 +6832,16 @@ async def run():
     check("U1 off-topic not harsh", "assistant" in r.lower() or "help" in r.lower())
     u_features_discovered[U1].add("off_topic_redirect")
 
-    # Clarify flow: bare product name -> clarify
+    # Clarify flow: ambiguous intent -> clarify
     r = await _route_intent(U1, {
-        "action": "check_stock", "product": "rice", "clarify": True, "_is_voice": True,
+        "action": "set_price", "product": "rice", "sell_price": 5000, "clarify": True, "_is_voice": True,
     }, "pidgin")
     check("U1 clarify asks confirmation", "yes" in r.lower() or "mean" in r.lower())
     p = await _peek_pending(db, U1)
     check("U1 clarify saves pending", p and p.get("action") == "clarify_intent")
     # User says yes
     r2 = await _route_intent(U1, {"action": "confirm_yes", "_is_voice": True}, "pidgin")
-    check("U1 clarify yes -> executes guess", "stock" in r2.lower() or "no" in r2.lower() or "don't have" in r2.lower() or "empty" in r2.lower() or "you get" in r2.lower())
+    check("U1 clarify yes -> executes guess", "price" in r2.lower() or "set" in r2.lower())
     u_features_discovered[U1].add("clarify_flow")
 
     # Sale 1 -- first sale, voice
@@ -7411,7 +7411,7 @@ async def run():
 
     # Clarify flow test for U3
     r = await _route_intent(U3, {
-        "action": "record_sale", "product": "cream", "quantity": 5, "unit": "piece",
+        "action": "set_price", "product": "cream", "sell_price": 1000,
         "clarify": True, "_is_voice": True,
     }, "english")
     check("U3 clarify asks confirmation", "yes" in r.lower() or "mean" in r.lower() or "did you" in r.lower())
@@ -7783,16 +7783,16 @@ async def run():
     check("R16 T1 off-topic not harsh", "assistant" in r.lower() or "help" in r.lower() or "fit" in r.lower())
     r16_features[T1].add("off_topic_redirect")
 
-    # Clarify flow: bare product name (text user, no _is_voice)
+    # Clarify flow: ambiguous intent (text user, no _is_voice)
     r = await _route_intent(T1, {
-        "action": "check_stock", "product": "garri", "clarify": True,
+        "action": "set_price", "product": "garri", "sell_price": 500, "clarify": True,
     }, "pidgin")
     check("R16 T1 clarify asks confirmation", "yes" in r.lower() or "mean" in r.lower())
     p = await _peek_pending(db, T1)
     check("R16 T1 clarify saves pending", p and p.get("action") == "clarify_intent")
     # User confirms yes
     r2 = await _route_intent(T1, {"action": "confirm_yes"}, "pidgin")
-    check("R16 T1 clarify yes executes", "stock" in r2.lower() or "no" in r2.lower() or "don't have" in r2.lower() or "empty" in r2.lower() or "you get" in r2.lower())
+    check("R16 T1 clarify yes executes", "price" in r2.lower() or "set" in r2.lower())
     r16_features[T1].add("clarify_flow")
 
     # Sale 1 -- first sale, TEXT (no _is_voice)
@@ -8343,7 +8343,7 @@ async def run():
 
     # Clarify flow for T3 (no path)
     r = await _route_intent(T3, {
-        "action": "record_sale", "product": "fabric", "quantity": 3, "unit": "piece",
+        "action": "set_price", "product": "fabric", "sell_price": 2000,
         "clarify": True,
     }, "english")
     check("R16 T3 clarify asks confirmation", "yes" in r.lower() or "mean" in r.lower() or "did you" in r.lower())
@@ -8483,13 +8483,13 @@ async def run():
 
     # Clarify flow (voice, yes path)
     r = await _route_intent(V2, {
-        "action": "check_stock", "product": "fish", "clarify": True, "_is_voice": True,
+        "action": "set_price", "product": "fish", "sell_price": 3000, "clarify": True, "_is_voice": True,
     }, "english")
     check("R16 V2 clarify asks confirmation", "yes" in r.lower() or "mean" in r.lower())
     p = await _peek_pending(db, V2)
     check("R16 V2 clarify pending saved", p and p.get("action") == "clarify_intent")
     r2 = await _route_intent(V2, {"action": "confirm_yes", "_is_voice": True}, "english")
-    check("R16 V2 clarify yes executes", "stock" in r2.lower() or "don't have" in r2.lower() or "no" in r2.lower() or "fish" in r2.lower())
+    check("R16 V2 clarify yes executes", "price" in r2.lower() or "set" in r2.lower())
 
     # ========== GROWTH FEATURES TESTS (Round 16) ==========
     print("\n--- Round 16: Growth Features ---")
@@ -9065,7 +9065,7 @@ async def run():
 
     # 32. Clarify flow (yes path)
     r = await _route_intent(TX, {
-        "action": "check_stock", "product": "oil", "clarify": True,
+        "action": "set_price", "product": "oil", "sell_price": 800, "clarify": True,
     }, "pidgin")
     ux_check("TX clarify prompt", r, 300)
     check("R17 clarify asks yes/no", "yes" in r.lower())
@@ -9074,7 +9074,7 @@ async def run():
 
     # 33. Clarify flow (no path)
     r = await _route_intent(TX, {
-        "action": "record_sale", "product": "thing", "clarify": True,
+        "action": "set_price", "product": "thing", "sell_price": 500, "clarify": True,
     }, "pidgin")
     r = await _route_intent(TX, {"action": "confirm_no"}, "pidgin")
     ux_check("TX clarify no result", r, 200)

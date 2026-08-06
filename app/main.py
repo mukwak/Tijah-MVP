@@ -1049,8 +1049,15 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     handler = handler_map.get(action)
 
     # If Gemini flagged "clarify": true, save the guessed intent as pending
-    # and ask the user to confirm before executing
-    if intent.get("clarify") and action in handler_map:
+    # and ask the user to confirm before executing.
+    # Skip clarification for actions that handle ambiguity themselves:
+    # - record_sale: has its own price lookup, price/credit clarification flows
+    # - add_stock: straightforward even without cost price
+    # - record_expense: works fine with just description + amount
+    skip_clarify = {"record_sale", "add_stock", "record_expense", "record_credit",
+                    "record_payment", "daily_summary", "check_stock", "check_credits",
+                    "check_sales", "check_expenses", "check_payments"}
+    if intent.get("clarify") and action in handler_map and action not in skip_clarify:
         from app.handlers import _save_pending
         db = await get_db()
         await _save_pending(db, phone, {
