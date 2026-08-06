@@ -330,7 +330,7 @@ async def parse_voice_intent(audio_bytes: bytes, language: str = "english") -> d
         }],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 500,
+            "maxOutputTokens": 1024,
             "responseMimeType": "application/json",
         },
     }
@@ -356,7 +356,7 @@ async def _parse_with_gemini(text: str, language: str) -> dict:
         ],
         "generationConfig": {
             "temperature": 0.1,
-            "maxOutputTokens": 500,
+            "maxOutputTokens": 1024,
             "responseMimeType": "application/json",
         },
     }
@@ -427,7 +427,9 @@ async def parse_image_intent(image_bytes: bytes, language: str = "english") -> d
 
 
 def _parse_json_lenient(text: str) -> dict:
-    """Parse JSON leniently — handle comments, trailing commas from Gemini 2.5."""
+    """Parse JSON leniently — handle comments, trailing commas, truncation from Gemini."""
+    import logging
+    log = logging.getLogger("tijah")
     try:
         return json.loads(text)
     except json.JSONDecodeError:
@@ -439,5 +441,25 @@ def _parse_json_lenient(text: str) -> dict:
     cleaned = re.sub(r',\s*([}\]])', r'\1', cleaned)
     try:
         return json.loads(cleaned)
+    except json.JSONDecodeError:
+        pass
+    # Truncated JSON recovery: close unterminated strings and braces
+    fixed = cleaned.rstrip()
+    # Close unterminated string
+    quote_count = fixed.count('"') - fixed.count('\\"')
+    if quote_count % 2 == 1:
+        fixed += '"'
+    # Close missing braces/brackets
+    open_braces = fixed.count('{') - fixed.count('}')
+    open_brackets = fixed.count('[') - fixed.count(']')
+    # Remove trailing comma before we close
+    fixed = re.sub(r',\s*$', '', fixed)
+    fixed += ']' * max(0, open_brackets)
+    fixed += '}' * max(0, open_braces)
+    try:
+        result = json.loads(fixed)
+        log.info(f"Recovered truncated JSON: {result}")
+        return result
     except json.JSONDecodeError as e:
+        log.warning(f"JSON parse failed even after recovery. Raw: {text[:200]}")
         return {"action": "help", "error": str(e)}
