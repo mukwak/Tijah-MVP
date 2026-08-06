@@ -328,10 +328,20 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     if supplier:
         supplier_note = f" (from {supplier})"
 
+    # Get current stock count to include in response
+    current_stock = (await (await db.execute(
+        "SELECT stock_qty FROM products WHERE id = ?", (product_id,)
+    )).fetchone())[0]
+
     result = get_response(
         "stock_added", lang,
         quantity=_fmt(quantity), unit=unit, product=product, price_note=price_note,
     )
+    # Show total stock count
+    if lang == "pidgin":
+        result = result.rstrip() + f" You get {_fmt(current_stock)} {unit} now."
+    else:
+        result = result.rstrip() + f" You now have {_fmt(current_stock)} {unit}."
     if supplier_note:
         result = result.rstrip() + supplier_note
 
@@ -366,7 +376,14 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
         "SELECT COUNT(*) FROM stock_entries WHERE phone = ? AND product_id = ?",
         (phone, product_id),
     )).fetchone())[0]
-    if not sell_price and product_entries <= 2:
+    # Only hint about sell price if no sell_price AND no previous sales with a price
+    has_sale_price = False
+    if not sell_price:
+        has_sale_price = (await (await db.execute(
+            "SELECT COUNT(*) FROM sales WHERE phone = ? AND product_id = ? AND unit_price > 0",
+            (phone, product_id)
+        )).fetchone())[0] > 0
+    if not sell_price and not has_sale_price and product_entries <= 2:
         result += get_response("hint_set_price", lang, product=product, unit=unit)
     else:
         stock_count = (await (await db.execute(
