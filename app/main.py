@@ -676,7 +676,7 @@ async def _process_message(message: dict):
         from app.handlers import _peek_pending, _clear_pending as _clr_pending
         pending = await _peek_pending(db, phone)
 
-        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending"):
+        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick"):
             # For pending flows, we need text — use Whisper as fallback
             try:
                 text = await transcribe(audio_bytes)
@@ -776,7 +776,7 @@ async def _process_message(message: dict):
     from app.handlers import _peek_pending, _clear_pending as _clr_pending
     pending = await _peek_pending(db, phone)
 
-    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending"):
+    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick"):
         intent = await _handle_pending_text(db, phone, text, pending, lang)
     else:
         # Fast pre-classifier — skip Gemini for simple intents
@@ -975,6 +975,20 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
         reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
         return reply_intent
 
+    if pending.get("action") == "delete_pick":
+        await _clr(db, phone)
+        import re as _re
+        m = _re.search(r"\d+", text)
+        if m:
+            pick = int(m.group())
+            entries = pending.get("entries", [])
+            if 1 <= pick <= len(entries):
+                chosen = entries[pick - 1]
+                log.info(f"Delete pick #{pick}: {chosen['table']} id={chosen['id']} {chosen['desc']}")
+                return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
+        # Invalid number — just pass through
+        log.info(f"Invalid delete pick: {text}")
+
     return {"action": "_clarify"}
 
 
@@ -1056,7 +1070,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     # - record_expense: works fine with just description + amount
     skip_clarify = {"record_sale", "add_stock", "record_expense", "record_credit",
                     "record_payment", "daily_summary", "check_stock", "check_credits",
-                    "check_sales", "check_expenses", "check_payments"}
+                    "check_sales", "check_expenses", "check_payments", "undo"}
     if intent.get("clarify") and action in handler_map and action not in skip_clarify:
         from app.handlers import _save_pending
         db = await get_db()
@@ -1067,6 +1081,34 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
         })
         desc = _describe_intent(intent, lang)
         return get_response("clarify_intent", lang, description=desc)
+
+    # Handle specific entry deletion from numbered list
+    if action == "_delete_picked":
+        entry_data = intent.get("_entry", {})
+        entry_lang = intent.get("_lang", lang)
+        try:
+            db = await get_db()
+            table = entry_data["table"]
+            entry_id = entry_data["id"]
+            # Fetch full entry for proper cleanup
+            if table == "sales":
+                cursor = await db.execute(
+                    "SELECT id, product_name, total, created_at, quantity, product_id FROM sales WHERE id = ?",
+                    (entry_id,))
+            elif table == "stock_entries":
+                cursor = await db.execute(
+                    "SELECT id, product_name, cost_price, created_at, quantity, product_id FROM stock_entries WHERE id = ?",
+                    (entry_id,))
+            else:
+                cursor = await db.execute(
+                    f"SELECT id, '', 0, '' FROM {table} WHERE id = ?", (entry_id,))
+            row = await cursor.fetchone()
+            if row:
+                return await handlers._delete_entry(db, phone, row, table, entry_lang)
+            return get_response("not_understood", entry_lang)
+        except Exception as e:
+            log.error(f"Delete pick error: {e}\n{traceback.format_exc()}")
+            return get_response("error", lang)
 
     if handler:
         try:

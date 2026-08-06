@@ -1890,13 +1890,19 @@ async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
 
 
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
-    """Undo the last recorded action (sale, expense, credit, or stock entry)."""
+    """Undo the last recorded action, or show list for specific deletion."""
     db = await get_db()
 
-    # Optional product filter: "undo the rice sale"
+    # Optional product filter: "undo the rice sale" / "delete general sales"
     product_filter = data.get("product")
     if product_filter:
         product_filter = _normalize_product_name(product_filter)
+
+    # If user asks to delete a specific product's entries (not just "cancel that"),
+    # show a numbered list so they can pick which one to remove
+    quantity = data.get("quantity")
+    if product_filter and (quantity or data.get("_show_list")):
+        return await _show_delete_list(db, phone, product_filter, lang)
 
     # Optional time filter: "undo the sale from yesterday"
     when_filter = data.get("when")
@@ -1910,6 +1916,71 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         when_date = None
 
     # Find the most recent action across all tables
+    latest, latest_table = await _find_latest_entry(db, phone, product_filter, when_date)
+
+    if not latest:
+        if lang == "pidgin":
+            return "Nothing to undo. You never record anything yet."
+        return "Nothing to undo. You haven't recorded anything yet."
+
+    return await _delete_entry(db, phone, latest, latest_table, lang)
+
+
+async def _show_delete_list(db, phone, product_filter, lang):
+    """Show numbered list of entries matching a product for selective deletion."""
+    # Search sales and stock_entries for matching product
+    entries = []
+    for table, desc_col, amt_col in [("sales", "product_name", "total"), ("stock_entries", "product_name", "cost_price")]:
+        cursor = await db.execute(
+            f"SELECT id, {desc_col}, {amt_col}, created_at, quantity FROM {table} "
+            f"WHERE phone = ? AND LOWER({desc_col}) LIKE ? "
+            f"ORDER BY created_at DESC LIMIT 10",
+            (phone, f"%{product_filter}%"),
+        )
+        rows = await cursor.fetchall()
+        for r in rows:
+            label = "sale" if table == "sales" else "stock"
+            entries.append({
+                "table": table, "id": r[0], "desc": r[1],
+                "amount": r[2], "date": r[3][:10] if r[3] else "",
+                "qty": r[4], "label": label,
+            })
+
+    if not entries:
+        if lang == "pidgin":
+            return f"I no find any {product_filter} record to delete."
+        return f"No {product_filter} entries found to delete."
+
+    # Sort by date desc
+    entries.sort(key=lambda e: e["date"], reverse=True)
+    entries = entries[:10]  # max 10
+
+    lines = []
+    if lang == "pidgin":
+        lines.append(f"Which {product_filter} record you wan delete?")
+    else:
+        lines.append(f"Which {product_filter} entry do you want to delete?")
+
+    for i, e in enumerate(entries, 1):
+        lines.append(f"  {i}. {e['label']}: {_fmt(e['qty'])} x {e['desc']} = {_fmt(e['amount'])} naira ({e['date']})")
+
+    if lang == "pidgin":
+        lines.append("\nTell me the number (e.g. \"delete 1\").")
+    else:
+        lines.append("\nTell me the number (e.g. \"delete 1\").")
+
+    # Save the list as pending so we can match the number
+    await _save_pending(db, phone, {
+        "action": "delete_pick",
+        "entries": entries,
+        "lang": lang,
+    })
+
+    return "\n".join(lines)
+
+
+async def _find_latest_entry(db, phone, product_filter, when_date):
+    """Find the most recent entry across all tables."""
     tables = [
         ("sales", "product_name", "total", "quantity", "product_id"),
         ("expenses", "description", "amount", None, None),
@@ -1920,11 +1991,8 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
 
     latest = None
     latest_table = None
-    latest_qty_col = None
-    latest_pid_col = None
 
     for table, desc_col, amount_col, qty_col, pid_col in tables:
-        # If product filter given, only search product-related tables
         if product_filter and table in ("expenses", "credits", "payments"):
             continue
         where = "phone = ?"
@@ -1946,35 +2014,29 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
             if latest is None or row[3] > latest[3] or (row[3] == latest[3] and row[0] > latest[0]):
                 latest = row
                 latest_table = table
-                latest_qty_col = qty_col
-                latest_pid_col = pid_col
 
-    if not latest:
-        if lang == "pidgin":
-            return "Nothing to undo. You never record anything yet."
-        return "Nothing to undo. You haven't recorded anything yet."
+    return latest, latest_table
 
-    desc = latest[1]
-    amount = _fmt(latest[2]) if latest[2] else ""
 
-    # Restore related data when undoing
-    if latest_table == "sales" and latest_qty_col:
-        qty = latest[4]
-        pid = latest[5]
+async def _delete_entry(db, phone, entry, table, lang):
+    """Delete a specific entry and restore related data."""
+    entry_id = entry[0]
+    desc = entry[1]
+    amount = _fmt(entry[2]) if entry[2] else ""
+
+    has_qty = len(entry) > 4
+    if table == "sales" and has_qty:
+        qty, pid = entry[4], entry[5]
         if pid:
             await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (qty, pid))
-    elif latest_table == "stock_entries" and latest_qty_col:
-        qty = latest[4]
-        pid = latest[5]
+    elif table == "stock_entries" and has_qty:
+        qty, pid = entry[4], entry[5]
         if pid:
             await db.execute("UPDATE products SET stock_qty = stock_qty - ? WHERE id = ?", (qty, pid))
-    elif latest_table == "payments":
-        # Reverse the payment: reduce paid amounts on credits (LIFO - most recent first)
-        pay_customer = latest[1]
-        pay_amount = latest[2]
+    elif table == "payments":
+        pay_customer = entry[1]
+        pay_amount = entry[2]
         remaining_refund = pay_amount
-
-        # First unsettled credits that were partially paid
         cursor = await db.execute(
             """SELECT id, amount, paid FROM credits
                WHERE phone = ? AND LOWER(customer) = LOWER(?) AND paid > 0
@@ -1995,17 +2057,15 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
             )
             remaining_refund -= refund
 
-    # Delete the record
-    await db.execute(f"DELETE FROM {latest_table} WHERE id = ?", (latest[0],))
+    await db.execute(f"DELETE FROM {table} WHERE id = ?", (entry_id,))
     await db.commit()
 
-    # Build human-readable description
     labels = {"sales": "sale", "expenses": "expense", "credits": "credit", "payments": "payment", "stock_entries": "stock"}
-    label = labels.get(latest_table, "record")
+    label = labels.get(table, "record")
 
     if lang == "pidgin":
-        return f"I don remove the last {label}: {desc} ({amount} naira)"
-    return f"Removed last {label}: {desc} ({amount} naira)"
+        return f"I don remove the {label}: {desc} ({amount} naira)"
+    return f"Removed {label}: {desc} ({amount} naira)"
 
 
 async def handle_multi_stock(phone: str, data: dict, lang: str) -> str:

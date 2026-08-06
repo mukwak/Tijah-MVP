@@ -51,10 +51,12 @@ Only set "clarify": true when genuinely ambiguous. Clear intents like "I sold 2 
    {"action": "greeting"}
    Only for PURE greetings with no business content: "hi", "hello", "good morning", "how far"
 
-6. UNDO - User wants to cancel/undo the last thing
-   {"action": "undo", "product": null, "when": null}
+6. UNDO - User wants to cancel/undo/delete an entry
+   {"action": "undo", "product": null, "when": null, "quantity": null}
    Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "no no no", "wrong"
-   If user mentions a product or time, include in "product" / "when".
+   "delete the general sales", "remove indomie sale", "delete entry 3", "delete number 2"
+   If user mentions a product, include in "product". If they mention a number to delete, include in "quantity".
+   If user mentions a time, include in "when".
 
 == SALES & STOCK ==
 
