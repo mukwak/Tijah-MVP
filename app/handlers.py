@@ -622,7 +622,7 @@ async def handle_check_stock(phone: str, data: dict, lang: str) -> str:
         return get_response("stock_empty", lang)
 
     cursor = await db.execute(
-        "SELECT name, stock_qty, unit, sell_price FROM products WHERE phone = ? ORDER BY name",
+        "SELECT name, stock_qty, unit, sell_price FROM products WHERE phone = ? AND name != '(general sales)' ORDER BY name",
         (phone,),
     )
     rows = await cursor.fetchall()
