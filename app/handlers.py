@@ -99,10 +99,9 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
 
     # Price ambiguity: "3 bags for 25 thousand" — each or total?
     if data.get("price_ambiguous") and quantity > 1:
-        # Figure out the user's stated number from raw NLU values
-        # NLU might set unit_price=X and total=X (same), or total=X*qty
-        # Use raw_unit_price as the user's number (what they actually said)
-        user_price = raw_unit_price or raw_total
+        # The user said ONE number without "each"/"per"/"total" keyword.
+        # NLU puts the user's stated number in total; use raw_total as the ambiguous amount.
+        user_price = raw_total or raw_unit_price
         as_total = user_price                    # interpretation: user_price is the total
         as_each_unit = user_price / quantity     # ... so each unit costs this
         as_each = user_price                     # interpretation: user_price is per-unit
