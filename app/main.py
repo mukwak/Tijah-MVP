@@ -990,29 +990,45 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
 
     if pending.get("action") == "delete_pick":
         await _clr(db, phone)
+        entries = pending.get("entries", [])
         import re as _re
+        pick = None
         m = _re.search(r"\d+", text)
         if m:
             pick = int(m.group())
-            entries = pending.get("entries", [])
-            if 1 <= pick <= len(entries):
-                chosen = entries[pick - 1]
-                log.info(f"Delete pick #{pick}: {chosen['table']} id={chosen['id']} {chosen['desc']}")
-                # Save for confirmation
-                await _save_pending(db, phone, {
-                    "action": "delete_confirm",
-                    "entry": chosen,
-                    "lang": pending.get("lang", lang),
-                })
-                from app.handlers import _fmt
-                desc = chosen['desc']
-                amt = _fmt(chosen['amount']) if chosen['amount'] else "0"
+        else:
+            # Natural language: "the last one", "first one", "last action", "the last", etc.
+            lower = text.lower().strip()
+            if any(w in lower for w in ("last", "first", "1st", "top", "most recent")):
+                pick = 1  # entries are sorted most-recent-first
+            elif "cancel" in lower or "no" in lower or "stop" in lower:
                 p_lang = pending.get("lang", lang)
                 if p_lang == "pidgin":
-                    return {"action": "_direct_response", "_text": f"You wan delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
-                return {"action": "_direct_response", "_text": f"Delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
-        # Invalid number — just pass through
+                    return {"action": "_direct_response", "_text": "No wahala. Nothing deleted."}
+                return {"action": "_direct_response", "_text": "OK, nothing deleted."}
+        if pick and 1 <= pick <= len(entries):
+            chosen = entries[pick - 1]
+            log.info(f"Delete pick #{pick}: {chosen['table']} id={chosen['id']} {chosen['desc']}")
+            # Save for confirmation
+            await _save_pending(db, phone, {
+                "action": "delete_confirm",
+                "entry": chosen,
+                "lang": pending.get("lang", lang),
+            })
+            from app.handlers import _fmt
+            desc = chosen['desc']
+            amt = _fmt(chosen['amount']) if chosen['amount'] else "0"
+            p_lang = pending.get("lang", lang)
+            if p_lang == "pidgin":
+                return {"action": "_direct_response", "_text": f"You wan delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
+            return {"action": "_direct_response", "_text": f"Delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."}
+        # Invalid pick — ask again
         log.info(f"Invalid delete pick: {text}")
+        await _save_pending(db, phone, pending)  # Re-save so user can try again
+        p_lang = pending.get("lang", lang)
+        if p_lang == "pidgin":
+            return {"action": "_direct_response", "_text": "Tell me the number of the entry you wan delete."}
+        return {"action": "_direct_response", "_text": "Tell me the number of the entry you want to delete."}
 
     if pending.get("action") == "delete_confirm":
         await _clr(db, phone)

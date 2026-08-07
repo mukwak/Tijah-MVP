@@ -40,14 +40,18 @@ def check(name, condition, detail=""):
 
 
 async def do_undo(phone, lang="english", pick=1):
-    """Helper: complete the full undo flow (list -> pick -> confirm)."""
+    """Helper: complete the full undo flow (direct confirm or list -> pick -> confirm)."""
     from app.main import _handle_pending_text
     db = await get_db()
-    # Step 1: show list
+    # Step 1: trigger undo — may go straight to confirmation or show list
     r = await _route_intent(phone, {"action": "undo"}, lang)
-    # Step 2: pick entry
     pending = await _peek_pending(db, phone)
-    if pending and pending.get("action") == "delete_pick":
+    # If direct confirmation (no filters = last entry), just confirm
+    if pending and pending.get("action") == "delete_confirm":
+        intent = await _handle_pending_text(db, phone, "yes", pending, lang)
+        r = await _route_intent(phone, intent, lang)
+    elif pending and pending.get("action") == "delete_pick":
+        # Step 2: pick entry from list
         intent = await _handle_pending_text(db, phone, str(pick), pending, lang)
         r = await _route_intent(phone, intent, lang)
         # Step 3: confirm

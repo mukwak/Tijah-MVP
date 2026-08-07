@@ -1909,6 +1909,10 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     if product_filter:
         product_filter = _normalize_product_name(product_filter)
 
+    # Expense-specific filters
+    desc_filter = data.get("description")
+    amount_filter = float(data.get("amount") or 0)
+
     # Time filter
     when_filter = data.get("when")
     when_date = None
@@ -1917,12 +1921,14 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
         if resolved:
             when_date = resolved[:10]
 
-    # Always show a list of matching entries for the user to pick from
-    return await _show_delete_list(db, phone, product_filter, when_date, lang)
+    return await _show_delete_list(db, phone, product_filter, when_date, lang,
+                                   desc_filter=desc_filter, amount_filter=amount_filter)
 
 
-async def _show_delete_list(db, phone, product_filter, when_date, lang):
-    """Show numbered list of recent entries for selective deletion."""
+async def _show_delete_list(db, phone, product_filter, when_date, lang,
+                            desc_filter=None, amount_filter=0):
+    """Show numbered list of recent entries for selective deletion.
+    If filters narrow to exactly 1 entry, skip the list and go straight to confirmation."""
     entries = []
     search_tables = [
         ("sales", "product_name", "total"),
@@ -1933,12 +1939,22 @@ async def _show_delete_list(db, phone, product_filter, when_date, lang):
     for table, desc_col, amt_col in search_tables:
         where = "phone = ?"
         params = [phone]
-        if product_filter:
+        if product_filter and table != "expenses":
             where += f" AND LOWER({desc_col}) LIKE ?"
             params.append(f"%{product_filter}%")
+        # Expense-specific filters
+        if desc_filter and table == "expenses":
+            where += f" AND LOWER({desc_col}) LIKE ?"
+            params.append(f"%{desc_filter.lower()}%")
+        if amount_filter and table == "expenses":
+            where += f" AND {amt_col} = ?"
+            params.append(amount_filter)
         if when_date:
             where += " AND date(created_at) = ?"
             params.append(when_date)
+        # If we have expense-specific filters, skip non-expense tables
+        if (desc_filter or amount_filter) and table != "expenses":
+            continue
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amt_col}, created_at, quantity FROM {table} "
             f"WHERE {where} ORDER BY created_at DESC LIMIT 10"
@@ -1962,15 +1978,34 @@ async def _show_delete_list(db, phone, product_filter, when_date, lang):
         return "Nothing to delete. You haven't recorded anything yet."
 
     # Sort by date desc, then id desc
-    entries.sort(key=lambda e: e["date"], reverse=True)
+    entries.sort(key=lambda e: (e["date"], e["id"]), reverse=True)
     entries = entries[:10]
 
-    lines = []
-    if product_filter:
+    # If exactly 1 match or no filters (meaning "cancel that" = last entry),
+    # go straight to confirmation
+    no_filters = not product_filter and not when_date and not desc_filter and not amount_filter
+    if len(entries) == 1 or no_filters:
+        # Pick the most recent entry
+        chosen = entries[0]
+        await _save_pending(db, phone, {
+            "action": "delete_confirm",
+            "entry": chosen,
+            "lang": lang,
+        })
+        desc = chosen["desc"]
+        amt = _fmt(chosen["amount"])
         if lang == "pidgin":
-            lines.append(f"Which {product_filter} record you wan delete?")
+            return f"You wan delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."
+        return f"Delete this {chosen['label']}: {desc} ({amt} naira)?\n\nSay \"yes\" to delete or \"no\" to cancel."
+
+    # Multiple matches — show numbered list
+    lines = []
+    filter_desc = product_filter or desc_filter or ""
+    if filter_desc:
+        if lang == "pidgin":
+            lines.append(f"Which {filter_desc} record you wan delete?")
         else:
-            lines.append(f"Which {product_filter} entry do you want to delete?")
+            lines.append(f"Which {filter_desc} entry do you want to delete?")
     else:
         if lang == "pidgin":
             lines.append("Which record you wan delete?")

@@ -52,10 +52,13 @@ Only set "clarify": true when genuinely ambiguous. Clear intents like "I sold 2 
    Only for PURE greetings with no business content: "hi", "hello", "good morning", "how far"
 
 6. UNDO - User wants to cancel/undo/delete an entry
-   {"action": "undo", "product": null, "when": null}
+   {"action": "undo", "product": null, "description": null, "amount": null, "when": null}
    Triggers: "cancel that", "remove that", "that's wrong", "delete the last one", "no no no", "wrong"
    "delete the daily total", "remove indomie sale", "delete my last sale"
-   If user mentions a product, include in "product" (e.g. "daily total", "indomie", "rice").
+   "cancel the 100 spent on local dues" → {"action": "undo", "description": "local dues", "amount": 100}
+   If user mentions a product (sale/stock), include in "product" (e.g. "daily total", "indomie", "rice").
+   If user mentions an expense description, include in "description".
+   If user mentions an amount, include in "amount".
    If user mentions a time, include in "when".
 
 == SALES & STOCK ==
