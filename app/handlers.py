@@ -2561,14 +2561,11 @@ async def _find_similar_customer(db, phone, name):
         # One contains the other
         if name_lower in existing_lower or existing_lower in name_lower:
             return existing, "fuzzy"
-        # High character overlap
+        # Sequence-based similarity (positional, not just character overlap)
+        from difflib import SequenceMatcher
         if len(name_lower) >= 4 and len(existing_lower) >= 4:
-            if len(name_lower) <= len(existing_lower):
-                shorter, longer = name_lower, existing_lower
-            else:
-                shorter, longer = existing_lower, name_lower
-            matches = sum(1 for c in shorter if c in longer)
-            if matches / len(shorter) >= 0.8:
+            ratio = SequenceMatcher(None, name_lower, existing_lower).ratio()
+            if ratio >= 0.65:
                 return existing, "fuzzy"
 
     return name, None
