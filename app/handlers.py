@@ -1909,9 +1909,9 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
     if product_filter:
         product_filter = _normalize_product_name(product_filter)
 
-    # Expense-specific filters
     desc_filter = data.get("description")
     amount_filter = float(data.get("amount") or 0)
+    type_filter = data.get("type")  # "sale", "expense", "stock", or None
 
     # Time filter
     when_filter = data.get("when")
@@ -1922,11 +1922,12 @@ async def handle_undo(phone: str, data: dict, lang: str) -> str:
             when_date = resolved[:10]
 
     return await _show_delete_list(db, phone, product_filter, when_date, lang,
-                                   desc_filter=desc_filter, amount_filter=amount_filter)
+                                   desc_filter=desc_filter, amount_filter=amount_filter,
+                                   type_filter=type_filter)
 
 
 async def _show_delete_list(db, phone, product_filter, when_date, lang,
-                            desc_filter=None, amount_filter=0):
+                            desc_filter=None, amount_filter=0, type_filter=None):
     """Show numbered list of recent entries for selective deletion.
     If filters narrow to exactly 1 entry, skip the list and go straight to confirmation."""
     entries = []
@@ -1936,7 +1937,13 @@ async def _show_delete_list(db, phone, product_filter, when_date, lang,
         ("expenses", "description", "amount"),
     ]
 
+    # Filter by type if specified
+    type_map = {"sale": "sales", "expense": "expenses", "stock": "stock_entries"}
+    allowed_tables = {type_map[type_filter]} if type_filter and type_filter in type_map else None
+
     for table, desc_col, amt_col in search_tables:
+        if allowed_tables and table not in allowed_tables:
+            continue
         where = "phone = ?"
         params = [phone]
         if product_filter:
@@ -1978,10 +1985,12 @@ async def _show_delete_list(db, phone, product_filter, when_date, lang,
     entries.sort(key=lambda e: (e["date"], e["id"]), reverse=True)
     entries = entries[:10]
 
-    # If exactly 1 match or no filters (meaning "cancel that" = last entry),
-    # go straight to confirmation
-    no_filters = not product_filter and not when_date and not desc_filter and not amount_filter
-    if len(entries) == 1 or no_filters:
+    # Go straight to confirmation (most recent match) when:
+    # - no filters ("cancel that" = last entry)
+    # - exactly 1 match
+    # - type-only filter ("cancel last expense" = most recent of that type)
+    has_specific_filter = product_filter or desc_filter or amount_filter or when_date
+    if len(entries) == 1 or not has_specific_filter:
         # Pick the most recent entry
         chosen = entries[0]
         await _save_pending(db, phone, {

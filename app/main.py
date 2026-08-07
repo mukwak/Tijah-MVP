@@ -1032,19 +1032,25 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
 
     if pending.get("action") == "delete_confirm":
         await _clr(db, phone)
-        # Check if user said yes/no
         lower = text.lower().strip()
+        # Check if user is starting a NEW action instead of answering yes/no
+        # e.g. "cancel that" is a new undo, not a "no" to the current confirmation
+        pre = preclassify(text)
+        if pre and pre.get("action") not in ("confirm_yes", "confirm_no"):
+            log.info(f"New action during delete_confirm — clearing pending: {pre}")
+            return pre
+        # Check if user said yes/no
         if lower in ("yes", "yeah", "yep", "sure", "ok", "okay", "confirm"):
             chosen = pending.get("entry", {})
             log.info(f"Delete confirmed: {chosen['table']} id={chosen['id']} {chosen['desc']}")
             return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
-        elif lower in ("no", "nah", "cancel", "nope", "stop"):
+        elif lower in ("no", "nah", "nope", "stop"):
             p_lang = pending.get("lang", lang)
             if p_lang == "pidgin":
                 return {"action": "_direct_response", "_text": "No wahala. Nothing deleted."}
             return {"action": "_direct_response", "_text": "OK, nothing deleted."}
         # If unclear, try NLU
-        reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
+        reply_intent = pre or await parse_intent(text, pending.get("lang", lang))
         if reply_intent.get("action") == "confirm_yes":
             chosen = pending.get("entry", {})
             return {"action": "_delete_picked", "_entry": chosen, "_lang": pending.get("lang", lang)}
