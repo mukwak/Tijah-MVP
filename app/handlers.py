@@ -1939,22 +1939,19 @@ async def _show_delete_list(db, phone, product_filter, when_date, lang,
     for table, desc_col, amt_col in search_tables:
         where = "phone = ?"
         params = [phone]
-        if product_filter and table != "expenses":
+        if product_filter:
             where += f" AND LOWER({desc_col}) LIKE ?"
             params.append(f"%{product_filter}%")
-        # Expense-specific filters
-        if desc_filter and table == "expenses":
+        # Description filter applies to all tables (desc_col is product_name or description)
+        if desc_filter:
             where += f" AND LOWER({desc_col}) LIKE ?"
             params.append(f"%{desc_filter.lower()}%")
-        if amount_filter and table == "expenses":
+        if amount_filter:
             where += f" AND {amt_col} = ?"
             params.append(amount_filter)
         if when_date:
             where += " AND date(created_at) = ?"
             params.append(when_date)
-        # If we have expense-specific filters, skip non-expense tables
-        if (desc_filter or amount_filter) and table != "expenses":
-            continue
         cursor = await db.execute(
             f"SELECT id, {desc_col}, {amt_col}, created_at, quantity FROM {table} "
             f"WHERE {where} ORDER BY created_at DESC LIMIT 10"
