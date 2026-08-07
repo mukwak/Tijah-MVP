@@ -212,11 +212,16 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     if quantity > 1:
         price_detail = f" at {_fmt(unit_price)} each"
 
+    backdate_note = ""
+    when_val = data.get("when", "today")
+    if when_val and when_val != "today":
+        backdate_note = f" (recorded for {when_val})"
+
     result = get_response(
         "sale_recorded", lang,
         quantity=_fmt(quantity), unit=unit, product=product, total=_fmt(total),
         credit_note=credit_note, price_detail=price_detail,
-    ) + low_stock_msg
+    ) + backdate_note + low_stock_msg
 
     # If we used last sale price (no stored sell_price), tell the user
     if data.get("_used_last_price"):
