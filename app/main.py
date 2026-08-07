@@ -781,6 +781,10 @@ async def _process_message(message: dict):
     else:
         # Fast pre-classifier — skip Gemini for simple intents
         intent = preclassify(text)
+        # confirm_yes/no only make sense if there's a pending action
+        if intent and intent.get("action") in ("confirm_yes", "confirm_no") and not pending:
+            log.info(f"Pre-classified {intent['action']} but no pending — skipping to NLU")
+            intent = None
         if intent:
             log.info(f"Pre-classified: {intent}")
         else:

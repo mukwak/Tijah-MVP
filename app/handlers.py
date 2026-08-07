@@ -1593,8 +1593,7 @@ async def handle_credit_reminder(phone: str, data: dict, lang: str) -> str:
             f"Please make payment when you can. Thank you!"
         )
 
-    prefix = "Forward this message to " + customer + ":\n\n" if lang == "english" else "Send this message give " + customer + ":\n\n"
-    return prefix + reminder
+    return reminder
 
 
 async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
