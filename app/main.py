@@ -1126,7 +1126,9 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     # - record_expense: works fine with just description + amount
     skip_clarify = {"record_sale", "add_stock", "record_expense", "record_credit",
                     "record_payment", "daily_summary", "check_stock", "check_credits",
-                    "check_sales", "check_expenses", "check_payments", "undo"}
+                    "check_sales", "check_expenses", "check_payments", "undo",
+                    "edit_credit", "edit_last", "mark_credit", "credit_reminder",
+                    "credit_history", "rename_customer"}
     if intent.get("clarify") and action in handler_map and action not in skip_clarify:
         from app.handlers import _save_pending
         db = await get_db()
