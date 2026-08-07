@@ -931,7 +931,7 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
     if pending.get("action") == "price_needed":
         await _clr(db, phone)
         reply_intent = preclassify(text) or await parse_intent(text, pending.get("lang", lang))
-        price = float(reply_intent.get("unit_price", 0)) or float(reply_intent.get("total", 0)) or float(reply_intent.get("sell_price", 0))
+        price = float(reply_intent.get("unit_price") or 0) or float(reply_intent.get("total") or 0) or float(reply_intent.get("sell_price") or 0)
         if not price:
             import re as _re
             m = _re.search(r"[\d,]+(?:\.\d+)?", text.replace(",", ""))
@@ -943,6 +943,15 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
         if price:
             saved_data = pending["data"]
             saved_data["unit_price"] = price
+            # Check if the reply corrects the product name
+            reply_product = reply_intent.get("product") if isinstance(reply_intent, dict) else None
+            if reply_product and reply_product.lower() != saved_data.get("product", "").lower():
+                log.info(f"Product corrected: {saved_data.get('product')} -> {reply_product}")
+                saved_data["product"] = reply_product
+                if reply_intent.get("unit"):
+                    saved_data["unit"] = reply_intent["unit"]
+                if reply_intent.get("quantity"):
+                    saved_data["quantity"] = reply_intent["quantity"]
             log.info(f"Price reply {price} merged with pending sale: {saved_data.get('product')}")
             return {"action": "record_sale", **{k: v for k, v in saved_data.items()}}
         else:

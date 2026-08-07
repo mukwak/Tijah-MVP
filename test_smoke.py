@@ -6146,6 +6146,31 @@ async def run():
     check("Pidgin no-price asks how much", "how much" in r3.lower())
     await _clear_pending(db, PN)
 
+    # Test 4: Product correction in price reply
+    # Simulate: NLU got product wrong (said "water" instead of "oil"), user corrects
+    r4 = await _route_intent(PN, {"action": "record_sale", "product": "water", "quantity": 3, "unit": "bottle"}, "english")
+    check("Wrong-product sale asks price", "how much" in r4.lower())
+    p4 = await _peek_pending(db, PN)
+    check("Wrong-product pending saved", p4 and p4.get("action") == "price_needed")
+    check("Wrong-product pending has water", p4 and p4["data"].get("product") == "water")
+    # User corrects: "It was oil, 500 each"
+    from app.main import _handle_pending_text
+    corrected_intent = await _handle_pending_text(db, PN, "It was oil, 500 each", p4, "english")
+    check("Correction updates product to oil", corrected_intent.get("product") == "oil")
+    check("Correction has price 500", corrected_intent.get("unit_price") == 500)
+    check("Correction keeps quantity", corrected_intent.get("quantity") == 3)
+    # Route the corrected intent to record the sale
+    r4b = await _route_intent(PN, corrected_intent, "english")
+    check("Corrected sale recorded", "Sold!" in r4b or "sold" in r4b.lower())
+    check("Corrected sale says oil", "oil" in r4b.lower())
+    # Verify DB
+    cursor = await db.execute(
+        "SELECT product_name, quantity, unit_price FROM sales WHERE phone = ? ORDER BY rowid DESC LIMIT 1", (PN,))
+    row4 = await cursor.fetchone()
+    check("DB: corrected product is oil", row4 and row4[0] == "oil")
+    check("DB: corrected quantity is 3", row4 and row4[1] == 3)
+    check("DB: corrected price is 500", row4 and row4[2] == 500)
+
     print(f"\n  Price-needed context: all tests complete")
 
     # =========================================================================

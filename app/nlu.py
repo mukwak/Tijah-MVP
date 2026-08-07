@@ -247,6 +247,7 @@ COMMON PIDGIN:
 
 PRODUCT NAME NORMALIZATION - always use the simplest common name:
   "pure water" / "sachet water" / "table water" = "water"
+  "oil" / "vegetable oil" / "groundnut oil" / "palm oil" / "cooking oil" = keep as-is (DO NOT confuse with "water")
   "minerals" / "soft drink" / "soda" = "soft drink" (unless specific brand named)
   "coke" / "coca cola" = "coke"; "garri" / "gari" = "garri"
   "indomie" / "noodles" = "indomie"; "peak milk" / "tin milk" = "peak milk"
