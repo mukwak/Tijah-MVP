@@ -1117,6 +1117,7 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     if action == "_direct_response":
         return intent.get("_text", "")
 
+
     # If Gemini flagged "clarify": true, save the guessed intent as pending
     # and ask the user to confirm before executing.
     # Skip clarification for actions that handle ambiguity themselves:
@@ -1197,6 +1198,9 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
     Text is always sent so low-literate users can show it to someone who reads,
     verify numbers visually, and tap links. Voice is the primary interface they listen to.
     """
+    if not text:
+        log.info(f"Empty response — not sending to {phone}")
+        return
     log.info(f"Sending response to {phone}: include_voice={include_voice}, text_len={len(text)}")
     await send_text(phone, text)
 

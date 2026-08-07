@@ -730,7 +730,7 @@ async def run():
     # T56: Now "yes" does nothing -- no stale action fires
     print("\n--- T56: [Halima] Yes after stale pending -> nothing ---")
     resp = await _route_intent(U6, {"action": "confirm_yes"}, "english")
-    check("No stale action fires", "Nothing to confirm" in resp or "nothing" in resp.lower())
+    check("No stale action fires", resp == "" or "Nothing to confirm" in resp or "nothing" in resp.lower())
 
     # -- USER 7: Ada -- English hair salon --
     U7 = "2349100000007"
@@ -872,7 +872,7 @@ async def run():
     # T66: "yes" after stale -> nothing to confirm
     print("\n--- T66: [Mama Ngozi] Confirm after stale -> nothing ---")
     resp = await _route_intent(U10, {"action": "confirm_yes"}, "english")
-    check("Nothing to confirm", "Nothing to confirm" in resp or "nothing" in resp.lower())
+    check("Nothing to confirm", resp == "" or "nothing" in resp.lower())
     # The original payment was NOT processed (pending was cleared)
     cursor = await db.execute("SELECT COUNT(*) FROM payments WHERE phone = ?", (U10,))
     check("Original payment not processed", (await cursor.fetchone())[0] == 0)
@@ -1407,7 +1407,7 @@ async def run():
 
     print("\n--- T90: [Aunty Funke] Confirm yes with no pending ---")
     resp = await _route_intent(V7, {"action": "confirm_yes"}, "english")
-    check("No pending: helpful message", "nothing to confirm" in resp.lower())
+    check("No pending: helpful message", resp == "" or "nothing to confirm" in resp.lower())
     check("No accidental sales from empty confirm", await count_sales(V7) == 0)
 
     print("\n--- T91: [Aunty Funke] Long voice -> confirm -> DB -> double confirm ---")
@@ -1425,7 +1425,7 @@ async def run():
           hair and hair[1] == 3 and hair[3] == 15000, f"got {hair}")
     # Double confirm should NOT create a duplicate
     resp2 = await _route_intent(V7, {"action": "confirm_yes"}, "english")
-    check("Double confirm: nothing pending", "nothing to confirm" in resp2.lower())
+    check("Double confirm: nothing pending", resp2 == "" or "nothing to confirm" in resp2.lower())
     v7_count2 = await count_sales(V7)
     check("Still 1 sale (no duplicate from double confirm)", v7_count2 == 1,
           f"got {v7_count2}")
@@ -1541,7 +1541,7 @@ async def run():
 
     print("\n--- T95: [Mama Chisom] Empty pending -> confirm no -> no DB changes ---")
     resp = await _route_intent(V10, {"action": "confirm_no"}, "pidgin")
-    check("No pending: pidgin no message", "nothing to confirm" in resp.lower())
+    check("No pending: pidgin no message", resp == "" or "nothing to confirm" in resp.lower())
     check("No sales from empty confirm", await count_sales(V10) == 0)
 
     print("\n--- T96: [Mama Chisom] Long voice credit sale -> confirm -> DB ---")
@@ -1595,7 +1595,7 @@ async def run():
     check("V10 has 2 sales (no stale)", v10_count == 2, f"got {v10_count}")
     # Confirm after stale -> nothing
     resp = await _route_intent(V10, {"action": "confirm_yes"}, "pidgin")
-    check("Confirm after stale: nothing", "nothing to confirm" in resp.lower())
+    check("Confirm after stale: nothing", resp == "" or "nothing to confirm" in resp.lower())
 
     print("\n--- T99: [Mama Chisom] Hint persistence in DB ---")
     cursor = await db.execute(

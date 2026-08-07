@@ -851,9 +851,10 @@ async def handle_check_expenses(phone: str, data: dict, lang: str) -> str:
 
 
 async def handle_check_sales(phone: str, data: dict, lang: str) -> str:
-    """Show individual sales for a period."""
+    """Show individual sales for a period, optionally filtered by product."""
     db = await get_db()
     period = data.get("period", "today")
+    product_filter = data.get("product")
 
     if period == "today":
         date_filter = "date(created_at) = date('now', '+1 hours')"
@@ -868,18 +869,27 @@ async def handle_check_sales(phone: str, data: dict, lang: str) -> str:
         date_filter = "created_at >= datetime('now', '+1 hours', '-30 days')"
         period_text = "this month"
 
+    params = [phone]
+    product_clause = ""
+    if product_filter:
+        product_filter = _normalize_product_name(product_filter)
+        product_clause = " AND LOWER(product_name) = LOWER(?)"
+        params.append(product_filter)
+
     cursor = await db.execute(
         f"""SELECT product_name, quantity, unit_price, total, created_at
-           FROM sales WHERE phone = ? AND {date_filter}
+           FROM sales WHERE phone = ? AND {date_filter}{product_clause}
            ORDER BY created_at DESC""",
-        (phone,),
+        params,
     )
     rows = await cursor.fetchall()
 
+    product_label = f" {product_filter}" if product_filter else ""
+
     if not rows:
         if lang == "pidgin":
-            return f"You never sell anything {period_text}."
-        return f"No sales {period_text}."
+            return f"You never sell{product_label} {period_text}."
+        return f"No{product_label} sales {period_text}."
 
     total = sum(r[3] for r in rows)
     sales_lines = []
@@ -895,8 +905,8 @@ async def handle_check_sales(phone: str, data: dict, lang: str) -> str:
     sales_list = "\n".join(sales_lines)
 
     if lang == "pidgin":
-        return f"Wetin you sell {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
-    return f"Your sales {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
+        return f"Wetin you sell{product_label} {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
+    return f"Your{product_label} sales {period_text}:\n{sales_list}\n\nTotal: {_fmt(total)} naira ({len(rows)} sales)"
 
 
 async def handle_daily_summary(phone: str, data: dict, lang: str) -> str:
@@ -1601,9 +1611,7 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     pending = await _get_pending(db, phone)
     if not pending:
-        if lang == "pidgin":
-            return "Nothing to confirm. Just tell me wetin you wan do."
-        return "Nothing to confirm. Just tell me what you need."
+        return ""  # Nothing to confirm — stay silent
 
     # Long voice confirmation: user says the transcription is correct — process it
     if pending.get("action") == "long_voice_confirm":
@@ -1672,9 +1680,7 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     pending = await _get_pending(db, phone)
     if not pending:
-        if lang == "pidgin":
-            return "Nothing to confirm. Just tell me wetin you wan do."
-        return "Nothing to confirm. Just tell me what you need."
+        return ""  # Nothing to confirm — stay silent
 
     # Long voice confirmation: user says transcription was wrong — ask to resend
     if pending.get("action") == "long_voice_confirm":

@@ -94,9 +94,12 @@ Only set "clarify": true when genuinely ambiguous. Clear intents like "I sold 2 
     {"action": "set_price", "product": "rice", "unit": "bag", "sell_price": 5000}
 
 13. CHECK_SALES - User wants to see individual sales list
-    {"action": "check_sales", "period": "today"}
+    {"action": "check_sales", "period": "today", "product": null}
     Triggers: "what did I sell today", "show me my sales", "list my sales", "wetin I sell today"
+    "how much beans have I sold today" → {"action": "check_sales", "period": "today", "product": "beans"}
+    "what of rice?" / "and rice?" → {"action": "check_sales", "period": "today", "product": "rice"}
     Use this for DETAILS/LIST of sales. Use daily_summary for overall summary.
+    Include "product" if the user asks about a specific product.
 
 == CREDITS & PAYMENTS ==
 
