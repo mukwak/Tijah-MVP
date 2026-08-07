@@ -26,7 +26,7 @@ def _resolve_when(when: str) -> str | None:
     # UTC+1 for Nigeria (WAT)
     now_wat = datetime.utcnow() + timedelta(hours=1)
     if when == "yesterday":
-        dt = now_wat - timedelta(days=1)
+        dt = (now_wat - timedelta(days=1)).replace(hour=0, minute=0, second=0)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     # Day name: "saturday", "last friday"
     day_key = when.lower().replace("last ", "").strip()
@@ -36,11 +36,11 @@ def _resolve_when(when: str) -> str | None:
         days_back = (current_dow - target_dow) % 7
         if days_back == 0:
             days_back = 7  # "saturday" on a saturday means last saturday
-        dt = now_wat - timedelta(days=days_back)
+        dt = (now_wat - timedelta(days=days_back)).replace(hour=0, minute=0, second=0)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     try:
         days = int(when)
-        dt = now_wat + timedelta(days=days)
+        dt = (now_wat + timedelta(days=days)).replace(hour=0, minute=0, second=0)
         return dt.strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return None
@@ -887,7 +887,9 @@ async def handle_check_sales(phone: str, data: dict, lang: str) -> str:
     for r in rows:
         time_str = r[4][11:16] if r[4] and len(r[4]) > 15 else ""
         line = f"  {r[0]} x{_fmt(r[1])} = {_fmt(r[3])} naira"
-        if time_str:
+        if time_str == "00:00":
+            line += "  (added later)"
+        elif time_str:
             line += f"  ({time_str})"
         sales_lines.append(line)
 
