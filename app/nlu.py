@@ -262,11 +262,13 @@ PRICE MATH:
   - If quantity not mentioned, assume 1
 
 PRICE AMBIGUITY: "3 bags for 25 thousand" — could mean 25k total or each.
-  - "X each" / "X per bag" / "X one" = unit_price
-  - "X total" / "all for X" = total
-  - "I sold 3 bags of rice, 25 thousand" (no keyword) = treat as TOTAL
-  - "I sold 3 bags of rice at 25 thousand" = unit_price
-  - When truly ambiguous, set "price_ambiguous": true
+  - "X each" / "X per bag" / "X one" / "at X each" = clearly unit_price, NOT ambiguous
+  - "X total" / "all for X" = clearly total, NOT ambiguous
+  - "for X" / "X thousand" / "X naira" (no "each"/"per"/"total" keyword) with quantity > 1:
+    SET "price_ambiguous": true, "total": X, "unit_price": X/quantity
+    Examples: "I sold 3 bags of rice for 150 thousand" → price_ambiguous: true
+              "I sold 5 indomie 2000" → price_ambiguous: true
+  - ONLY skip ambiguity when keyword makes it 100% clear (each/per/total/all)
 
 CREDIT AMBIGUITY: Customer name in sale but no clear credit/cash indicator:
   - Clearly cash ("I sold to X", "X paid for Y"): "is_credit": false
