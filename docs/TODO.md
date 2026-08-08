@@ -213,6 +213,36 @@ Users often wait until they're done serving customers to record everything at on
 
 ---
 
+## From Live Pilot Testing (August 2026)
+
+### High Priority
+
+- [ ] **edit_last response unclear**: "Updated price to 55,000" doesn't say WHAT was updated (which product? stock cost or sale price?). Need clearer confirmation showing the full entry that was modified.
+- [ ] **Proactive nudges not scheduled**: Evening/morning/weekly nudge endpoints exist but no cron jobs call them. Need Render cron or external scheduler.
+
+### Medium Priority
+
+- [ ] **Expense hint repetition**: "How did my shop do today?" hint fires for expense_count <= 2, so it can appear on back-to-back expenses. User said "leave as is for now."
+
+### Fixed This Session
+
+- [x] Voice product misrecognition (oil -> water) — added oil preservation rule to NLU
+- [x] Product correction in price_needed flow
+- [x] Backdated entry clarity ("added later" label + midnight timestamp)
+- [x] Price ambiguity detection ("for X thousand" pattern)
+- [x] Price ambiguity showing wrong number (raw_total vs raw_unit_price)
+- [x] Fuzzy customer matching false positives (SequenceMatcher, 0.65 threshold)
+- [x] Bare "Yes" without pending action (silent instead of "Nothing to confirm")
+- [x] Product-filtered check_sales ("how much beans sold today")
+- [x] Skip unnecessary clarification for edit_credit, mark_credit, etc.
+- [x] Undo auto-confirm last entry (no 603-char list for "cancel that")
+- [x] Natural language in delete_pick ("the last action", "first one")
+- [x] Type-filtered undo ("cancel the last expense")
+- [x] Stale pending escape (new actions break out of delete_confirm)
+- [x] Credit reminder prefix removed ("Forward this to..." gone)
+
+---
+
 ## From Simulation Round 6
 
 *No medium or high severity issues found. System is stable.*

@@ -1780,7 +1780,7 @@ async def handle_rename_customer(phone: str, data: dict, lang: str) -> str:
 
 
 async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
-    """Edit the last recorded sale (change quantity, price, etc.)."""
+    """Edit the last recorded entry (sale, stock, or expense)."""
     db = await get_db()
     field = data.get("field", "")
     new_value = data.get("new_value")
@@ -1790,59 +1790,149 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
             return "Wetin you wan change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
         return "What do you want to change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
 
-    # Get the last sale, optionally filtering by product and/or time
     product = data.get("product")
     when_filter = data.get("when")
-    where = "phone = ?"
-    params = [phone]
-    if product:
-        product = _normalize_product_name(product)
-        where += " AND LOWER(product_name) = LOWER(?)"
-        params.append(product)
+    norm_product = _normalize_product_name(product) if product else None
+
+    # --- Search across sales, stock, and expenses for the most recent match ---
+    candidates = []  # (table, row, created_at)
+
+    # Sales
+    s_where, s_params = "phone = ?", [phone]
+    if norm_product:
+        s_where += " AND LOWER(product_name) = LOWER(?)"
+        s_params.append(norm_product)
     if when_filter and when_filter != "today":
         resolved = _resolve_when(when_filter)
         if resolved:
-            where += " AND date(created_at) = ?"
-            params.append(resolved[:10])
-    cursor = await db.execute(
-        f"SELECT id, product_name, quantity, unit_price, total, product_id FROM sales WHERE {where} ORDER BY created_at DESC LIMIT 1",
-        tuple(params),
+            s_where += " AND date(created_at) = ?"
+            s_params.append(resolved[:10])
+    cur = await db.execute(
+        f"SELECT id, product_name, quantity, unit_price, total, product_id, created_at FROM sales WHERE {s_where} ORDER BY created_at DESC LIMIT 1",
+        tuple(s_params),
     )
-    row = await cursor.fetchone()
-    if not row:
-        if lang == "pidgin":
-            return "I no see any sale to change."
-        return "No sale to edit."
+    sale_row = await cur.fetchone()
+    if sale_row:
+        candidates.append(("sale", sale_row, sale_row[6]))
 
-    sale_id, product_name, old_qty, old_price, old_total, product_id = row[0], row[1], row[2], row[3], row[4], row[5]
-    new_qty, new_price, new_total = old_qty, old_price, old_total
+    # Stock entries
+    st_where, st_params = "phone = ?", [phone]
+    if norm_product:
+        st_where += " AND LOWER(product_name) = LOWER(?)"
+        st_params.append(norm_product)
+    if when_filter and when_filter != "today":
+        resolved = _resolve_when(when_filter)
+        if resolved:
+            st_where += " AND date(created_at) = ?"
+            st_params.append(resolved[:10])
+    cur = await db.execute(
+        f"SELECT id, product_name, quantity, cost_price, product_id, created_at FROM stock_entries WHERE {st_where} ORDER BY created_at DESC LIMIT 1",
+        tuple(st_params),
+    )
+    stock_row = await cur.fetchone()
+    if stock_row:
+        candidates.append(("stock", stock_row, stock_row[5]))
+
+    # Expenses (only for price/total edits)
+    if field in ("price", "unit_price", "total", "amount"):
+        e_where, e_params = "phone = ?", [phone]
+        if when_filter and when_filter != "today":
+            resolved = _resolve_when(when_filter)
+            if resolved:
+                e_where += " AND date(created_at) = ?"
+                e_params.append(resolved[:10])
+        cur = await db.execute(
+            f"SELECT id, description, amount, created_at FROM expenses WHERE {e_where} ORDER BY created_at DESC LIMIT 1",
+            tuple(e_params),
+        )
+        exp_row = await cur.fetchone()
+        if exp_row:
+            candidates.append(("expense", exp_row, exp_row[3]))
+
+    if not candidates:
+        if lang == "pidgin":
+            return "I no see anything to change."
+        return "Nothing to edit."
+
+    # Pick the most recent entry across all tables
+    candidates.sort(key=lambda c: c[2], reverse=True)
+    table, row, _ = candidates[0]
 
     new_value = float(new_value)
 
-    if field in ("quantity", "qty"):
-        new_qty = new_value
-        new_total = new_qty * new_price
-        # Fix stock: restore old qty, deduct new qty
-        if product_id:
-            stock_diff = old_qty - new_qty
-            await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
-    elif field in ("price", "unit_price"):
-        new_price = new_value
-        new_total = new_qty * new_price
-    elif field == "total":
-        new_total = new_value
-        if new_qty > 0:
-            new_price = new_total / new_qty
+    # --- Apply edit based on table type ---
+    if table == "sale":
+        sale_id, product_name, old_qty, old_price, old_total, product_id = row[0], row[1], row[2], row[3], row[4], row[5]
+        new_qty, new_price, new_total = old_qty, old_price, old_total
+        old_display = None
 
-    await db.execute(
-        "UPDATE sales SET quantity = ?, unit_price = ?, total = ? WHERE id = ?",
-        (new_qty, new_price, new_total, sale_id),
-    )
-    await db.commit()
+        if field in ("quantity", "qty"):
+            old_display = f"{_fmt(old_qty)}"
+            new_qty = new_value
+            new_total = new_qty * new_price
+            if product_id:
+                stock_diff = old_qty - new_qty
+                await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
+        elif field in ("price", "unit_price"):
+            old_display = f"{_fmt(old_price)}"
+            new_price = new_value
+            new_total = new_qty * new_price
+        elif field == "total":
+            old_display = f"{_fmt(old_total)}"
+            new_total = new_value
+            if new_qty > 0:
+                new_price = new_total / new_qty
 
-    if lang == "pidgin":
-        return f"I don change am. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
-    return f"Updated. {product_name}: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
+        await db.execute(
+            "UPDATE sales SET quantity = ?, unit_price = ?, total = ? WHERE id = ?",
+            (new_qty, new_price, new_total, sale_id),
+        )
+        await db.commit()
+
+        if lang == "pidgin":
+            return f"I don change {product_name} sale. {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
+        return f"Updated {product_name} sale: {_fmt(new_qty)} x {_fmt(new_price)} = {_fmt(new_total)} naira."
+
+    elif table == "stock":
+        stock_id, product_name, old_qty, old_cost, product_id = row[0], row[1], row[2], row[3], row[4]
+
+        if field in ("price", "unit_price", "cost", "cost_price"):
+            old_cost_val = old_cost or 0
+            new_cost = new_value
+            await db.execute(
+                "UPDATE stock_entries SET cost_price = ? WHERE id = ?",
+                (new_cost, stock_id),
+            )
+            await db.commit()
+            if lang == "pidgin":
+                return f"I don change {product_name} stock cost from {_fmt(old_cost_val)} to {_fmt(new_cost)} per unit."
+            return f"Updated {product_name} stock cost from {_fmt(old_cost_val)} to {_fmt(new_cost)} per unit."
+        elif field in ("quantity", "qty"):
+            new_qty = new_value
+            if product_id:
+                stock_diff = new_qty - old_qty
+                await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
+            await db.execute(
+                "UPDATE stock_entries SET quantity = ? WHERE id = ?",
+                (new_qty, stock_id),
+            )
+            await db.commit()
+            if lang == "pidgin":
+                return f"I don change {product_name} stock quantity from {_fmt(old_qty)} to {_fmt(new_qty)}."
+            return f"Updated {product_name} stock quantity from {_fmt(old_qty)} to {_fmt(new_qty)}."
+
+    elif table == "expense":
+        exp_id, description, old_amount = row[0], row[1], row[2]
+        await db.execute(
+            "UPDATE expenses SET amount = ? WHERE id = ?",
+            (new_value, exp_id),
+        )
+        await db.commit()
+        if lang == "pidgin":
+            return f"I don change {description} expense from {_fmt(old_amount)} to {_fmt(new_value)} naira."
+        return f"Updated {description} expense from {_fmt(old_amount)} to {_fmt(new_value)} naira."
+
+    return "Nothing to edit."
 
 
 async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
