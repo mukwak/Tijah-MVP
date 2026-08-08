@@ -679,7 +679,7 @@ async def _process_message(message: dict):
         from app.handlers import _peek_pending, _clear_pending as _clr_pending
         pending = await _peek_pending(db, phone)
 
-        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm"):
+        if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm", "undo_edit"):
             # For pending flows, we need text — use Whisper as fallback
             try:
                 text = await transcribe(audio_bytes)
@@ -779,7 +779,7 @@ async def _process_message(message: dict):
     from app.handlers import _peek_pending, _clear_pending as _clr_pending
     pending = await _peek_pending(db, phone)
 
-    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm"):
+    if pending and pending.get("action") in ("pending_feedback", "price_needed", "set_price_pending", "delete_pick", "delete_confirm", "undo_edit"):
         intent = await _handle_pending_text(db, phone, text, pending, lang)
     else:
         # Fast pre-classifier — skip Gemini for simple intents
@@ -1044,6 +1044,41 @@ async def _handle_pending_text(db, phone: str, text: str, pending: dict, lang: s
             return {"action": "_direct_response", "_text": "Tell me the number of the entry you wan delete."}
         return {"action": "_direct_response", "_text": "Tell me the number of the entry you want to delete."}
 
+    if pending.get("action") == "undo_edit":
+        await _clr(db, phone)
+        lower = text.lower().strip()
+        # Check if user is starting a new action
+        pre = preclassify(text)
+        if pre and pre.get("action") not in ("confirm_yes", "confirm_no"):
+            # Clear the last edit since user moved on
+            handlers._pop_last_edit(phone)
+            return pre
+        if lower in ("yes", "yeah", "yep", "sure", "ok", "okay", "confirm"):
+            edit = pending.get("edit", {})
+            handlers._pop_last_edit(phone)
+            return {"action": "_revert_edit", "_edit": edit, "_lang": pending.get("lang", lang)}
+        elif lower in ("no", "nah", "nope", "stop"):
+            handlers._pop_last_edit(phone)
+            p_lang = pending.get("lang", lang)
+            if p_lang == "pidgin":
+                return {"action": "_direct_response", "_text": "No wahala. Edit stays."}
+            return {"action": "_direct_response", "_text": "OK, edit kept."}
+        # Check via NLU/preclassifier
+        reply_intent = pre or await parse_intent(text, pending.get("lang", lang))
+        if reply_intent.get("action") == "confirm_yes":
+            edit = pending.get("edit", {})
+            handlers._pop_last_edit(phone)
+            return {"action": "_revert_edit", "_edit": edit, "_lang": pending.get("lang", lang)}
+        if reply_intent.get("action") == "confirm_no":
+            handlers._pop_last_edit(phone)
+            p_lang = pending.get("lang", lang)
+            if p_lang == "pidgin":
+                return {"action": "_direct_response", "_text": "No wahala. Edit stays."}
+            return {"action": "_direct_response", "_text": "OK, edit kept."}
+        # Pass through
+        handlers._pop_last_edit(phone)
+        return reply_intent
+
     if pending.get("action") == "delete_confirm":
         await _clr(db, phone)
         lower = text.lower().strip()
@@ -1103,6 +1138,10 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     """Route parsed intent to the appropriate handler."""
     action = intent.get("action", "help")
 
+    # Clear stale edit history when user does something other than undo
+    if action not in ("undo", "confirm_yes", "confirm_no", "_direct_response", "_revert_edit"):
+        handlers._pop_last_edit(phone)
+
     handler_map = {
         "record_sale": handlers.handle_record_sale,
         "add_stock": handlers.handle_add_stock,
@@ -1152,6 +1191,75 @@ async def _route_intent(phone: str, intent: dict, lang: str) -> str:
     # Direct response — used by delete confirmation flow
     if action == "_direct_response":
         return intent.get("_text", "")
+
+    # Revert a previous edit
+    if action == "_revert_edit":
+        edit_data = intent.get("_edit", {})
+        entry_lang = intent.get("_lang", lang)
+        try:
+            db = await get_db()
+            table = edit_data["table"]
+            row_id = edit_data["row_id"]
+            changes = edit_data["changes"]
+            product_name = changes.get("product_name", "entry")
+
+            if table == "sales":
+                old_qty = changes["quantity"]
+                old_price = changes["unit_price"]
+                old_total = changes["total"]
+                # Restore stock if needed
+                cur = await db.execute("SELECT quantity, product_id FROM sales WHERE id = ?", (row_id,))
+                current = await cur.fetchone()
+                if current and changes.get("product_id"):
+                    stock_diff = current[0] - old_qty
+                    await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?",
+                                     (stock_diff, changes["product_id"]))
+                await db.execute(
+                    "UPDATE sales SET quantity = ?, unit_price = ?, total = ? WHERE id = ?",
+                    (old_qty, old_price, old_total, row_id))
+                await db.commit()
+                if entry_lang == "pidgin":
+                    return f"I don undo the edit. {product_name} sale back to {_fmt(old_qty)} x {_fmt(old_price)} = {_fmt(old_total)} naira."
+                return f"Edit undone. {product_name} sale restored to {_fmt(old_qty)} x {_fmt(old_price)} = {_fmt(old_total)} naira."
+
+            elif table == "stock_entries":
+                if "cost_price" in changes:
+                    old_cost = changes["cost_price"]
+                    await db.execute("UPDATE stock_entries SET cost_price = ? WHERE id = ?",
+                                     (old_cost, row_id))
+                    await db.commit()
+                    if entry_lang == "pidgin":
+                        return f"I don undo the edit. {product_name} stock cost back to {_fmt(old_cost)} per unit."
+                    return f"Edit undone. {product_name} stock cost restored to {_fmt(old_cost)} per unit."
+                elif "quantity" in changes:
+                    old_qty = changes["quantity"]
+                    cur = await db.execute("SELECT quantity, product_id FROM stock_entries WHERE id = ?", (row_id,))
+                    current = await cur.fetchone()
+                    if current and changes.get("product_id"):
+                        stock_diff = old_qty - current[0]
+                        await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?",
+                                         (stock_diff, changes["product_id"]))
+                    await db.execute("UPDATE stock_entries SET quantity = ? WHERE id = ?",
+                                     (old_qty, row_id))
+                    await db.commit()
+                    if entry_lang == "pidgin":
+                        return f"I don undo the edit. {product_name} stock quantity back to {_fmt(old_qty)}."
+                    return f"Edit undone. {product_name} stock quantity restored to {_fmt(old_qty)}."
+
+            elif table == "expenses":
+                old_amount = changes["amount"]
+                await db.execute("UPDATE expenses SET amount = ? WHERE id = ?",
+                                 (old_amount, row_id))
+                await db.commit()
+                desc = changes.get("description", "expense")
+                if entry_lang == "pidgin":
+                    return f"I don undo the edit. {desc} back to {_fmt(old_amount)} naira."
+                return f"Edit undone. {desc} restored to {_fmt(old_amount)} naira."
+
+            return get_response("not_understood", entry_lang)
+        except Exception as e:
+            log.error(f"Revert edit error: {e}\n{traceback.format_exc()}")
+            return get_response("error", lang)
 
 
     # If Gemini flagged "clarify": true, save the guessed intent as pending

@@ -22,6 +22,20 @@ def _pop_entry_meta(phone: str) -> dict | None:
     return _entry_meta.pop(phone, None)
 
 
+# --- Edit history: track last edit so undo can reverse it ---
+_last_edit: dict[str, dict] = {}  # phone -> {"table", "row_id", "changes": {field: old_value}}
+
+
+def _set_last_edit(phone: str, table: str, row_id: int, changes: dict):
+    """Save the last edit so it can be reversed by undo."""
+    _last_edit[phone] = {"table": table, "row_id": row_id, "changes": changes}
+
+
+def _pop_last_edit(phone: str) -> dict | None:
+    """Consume and return the last edit for this phone, or None."""
+    return _last_edit.pop(phone, None)
+
+
 def _fmt(num: float) -> str:
     """Format number with commas: 15000 -> 15,000"""
     if num == int(num):
@@ -1667,6 +1681,13 @@ async def handle_confirm_yes(phone: str, data: dict, lang: str) -> str:
         from app.main import _route_intent
         return await _route_intent(phone, guessed, pending.get("lang", lang))
 
+    # Undo edit: user confirmed — revert the edit
+    if pending.get("action") == "undo_edit":
+        edit = pending.get("edit", {})
+        _pop_last_edit(phone)
+        from app.main import _route_intent
+        return await _route_intent(phone, {"action": "_revert_edit", "_edit": edit, "_lang": pending.get("lang", lang)}, lang)
+
     if "data" not in pending:
         if lang == "pidgin":
             return "Nothing to confirm. Just tell me wetin you wan do."
@@ -1734,6 +1755,13 @@ async def handle_confirm_no(phone: str, data: dict, lang: str) -> str:
         if lang == "pidgin":
             return "No wahala. Try tell me again wetin you wan do."
         return "No problem. Try telling me again what you'd like to do."
+
+    # Undo edit: user rejected — keep the edit
+    if pending.get("action") == "undo_edit":
+        _pop_last_edit(phone)
+        if lang == "pidgin":
+            return "No wahala. Edit stays."
+        return "OK, edit kept."
 
     if "data" not in pending:
         if lang == "pidgin":
@@ -1939,15 +1967,18 @@ async def _apply_edit(db, phone, table, row, field, new_value, lang):
         new_qty, new_price, new_total = old_qty, old_price, old_total
 
         if field in ("quantity", "qty"):
+            _set_last_edit(phone, "sales", sale_id, {"quantity": old_qty, "unit_price": old_price, "total": old_total, "product_id": product_id, "product_name": product_name})
             new_qty = new_value
             new_total = new_qty * new_price
             if product_id:
                 stock_diff = old_qty - new_qty
                 await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
         elif field in ("price", "unit_price"):
+            _set_last_edit(phone, "sales", sale_id, {"quantity": old_qty, "unit_price": old_price, "total": old_total, "product_name": product_name})
             new_price = new_value
             new_total = new_qty * new_price
         elif field == "total":
+            _set_last_edit(phone, "sales", sale_id, {"quantity": old_qty, "unit_price": old_price, "total": old_total, "product_name": product_name})
             new_total = new_value
             if new_qty > 0:
                 new_price = new_total / new_qty
@@ -1968,6 +1999,7 @@ async def _apply_edit(db, phone, table, row, field, new_value, lang):
         if field in ("price", "unit_price", "cost", "cost_price"):
             old_cost_val = old_cost or 0
             new_cost = new_value
+            _set_last_edit(phone, "stock_entries", stock_id, {"cost_price": old_cost_val, "product_name": product_name})
             await db.execute(
                 "UPDATE stock_entries SET cost_price = ? WHERE id = ?",
                 (new_cost, stock_id),
@@ -1977,6 +2009,7 @@ async def _apply_edit(db, phone, table, row, field, new_value, lang):
                 return f"I don change {product_name} stock cost from {_fmt(old_cost_val)} to {_fmt(new_cost)} per unit."
             return f"Updated {product_name} stock cost from {_fmt(old_cost_val)} to {_fmt(new_cost)} per unit."
         elif field in ("quantity", "qty"):
+            _set_last_edit(phone, "stock_entries", stock_id, {"quantity": old_qty, "product_id": product_id, "product_name": product_name})
             new_qty = new_value
             if product_id:
                 stock_diff = new_qty - old_qty
@@ -1992,6 +2025,7 @@ async def _apply_edit(db, phone, table, row, field, new_value, lang):
 
     elif table == "expense":
         exp_id, description, old_amount = row[0], row[1], row[2]
+        _set_last_edit(phone, "expenses", exp_id, {"amount": old_amount, "description": description})
         await db.execute(
             "UPDATE expenses SET amount = ? WHERE id = ?",
             (new_value, exp_id),
@@ -2072,6 +2106,34 @@ async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
     """Undo/delete: always show what will be deleted and ask for confirmation."""
     db = await get_db()
+
+    # Check if the last action was an edit — offer to reverse it instead of deleting
+    last_edit = _last_edit.get(phone)
+    if last_edit:
+        product_name = last_edit["changes"].get("product_name", "entry")
+        await _save_pending(db, phone, {
+            "action": "undo_edit",
+            "edit": last_edit,
+            "lang": lang,
+        })
+        if last_edit["table"] == "sales":
+            old_vals = last_edit["changes"]
+            desc = f"{product_name} sale back to {_fmt(old_vals['quantity'])} x {_fmt(old_vals['unit_price'])} = {_fmt(old_vals['total'])} naira"
+        elif last_edit["table"] == "stock_entries":
+            old_vals = last_edit["changes"]
+            if "cost_price" in old_vals:
+                desc = f"{product_name} stock cost back to {_fmt(old_vals['cost_price'])} per unit"
+            else:
+                desc = f"{product_name} stock quantity back to {_fmt(old_vals['quantity'])}"
+        elif last_edit["table"] == "expenses":
+            old_vals = last_edit["changes"]
+            desc = f"{old_vals.get('description', 'expense')} back to {_fmt(old_vals['amount'])} naira"
+        else:
+            desc = "the last change"
+
+        if lang == "pidgin":
+            return f"You wan undo the edit? Change {desc}?\n\nSay \"yes\" to confirm."
+        return f"Undo edit? Change {desc}?\n\nSay \"yes\" to confirm."
 
     # Reply-to context: if user replied to a specific message, target that entry directly
     ref = data.get("_ref_entry")
