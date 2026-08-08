@@ -16,9 +16,10 @@ _db = None
 
 
 class QueryResult:
-    def __init__(self, rows: list[Any] | None = None, lastrowid: int | None = None):
+    def __init__(self, rows: list[Any] | None = None, lastrowid: int | None = None, rowcount: int = 0):
         self._rows = rows or []
         self.lastrowid = lastrowid
+        self.rowcount = rowcount
 
     async def fetchone(self):
         return self._rows[0] if self._rows else None
@@ -43,6 +44,9 @@ class SQLiteDatabase:
 
     async def execute(self, sql: str, params: tuple | list = ()):
         cursor = await self.conn.execute(sql, params)
+        # Wrap INSERT results so .lastrowid works uniformly
+        if sql.lstrip().upper().startswith("INSERT"):
+            return QueryResult(lastrowid=cursor.lastrowid, rowcount=cursor.rowcount)
         return cursor
 
     async def executescript(self, sql: str):
@@ -259,6 +263,8 @@ def _translate_sqlite_query(sql: str) -> str:
             "INSERT INTO report_tokens (phone, token) VALUES (?, ?) ON CONFLICT (phone) DO NOTHING",
         "INSERT OR IGNORE INTO customer_receipts (phone, customer, token) VALUES (?, ?, ?)":
             "INSERT INTO customer_receipts (phone, customer, token) VALUES (?, ?, ?) ON CONFLICT (phone, customer) DO NOTHING",
+        "INSERT OR IGNORE INTO message_entries (wamid, phone, table_name, row_id) VALUES (?, ?, ?, ?)":
+            "INSERT INTO message_entries (wamid, phone, table_name, row_id) VALUES (?, ?, ?, ?) ON CONFLICT (wamid) DO NOTHING",
         "INSERT OR REPLACE INTO pending_actions (phone, action_data) VALUES (?, ?)":
             "INSERT INTO pending_actions (phone, action_data) VALUES (?, ?) "
             "ON CONFLICT (phone) DO UPDATE SET action_data = EXCLUDED.action_data, "
@@ -281,7 +287,10 @@ def _translate_sqlite_query(sql: str) -> str:
     }
     for old, new in replacements.items():
         sql = sql.replace(old, new)
-    if "INSERT INTO products" in sql and "RETURNING id" not in sql:
+    _returning_tables = ("INSERT INTO products", "INSERT INTO sales",
+                         "INSERT INTO stock_entries", "INSERT INTO expenses",
+                         "INSERT INTO credits", "INSERT INTO payments")
+    if any(t in sql for t in _returning_tables) and "RETURNING id" not in sql:
         sql = sql.rstrip() + " RETURNING id"
     return sql
 
@@ -417,6 +426,14 @@ CREATE TABLE IF NOT EXISTS customer_receipts (
     FOREIGN KEY (phone) REFERENCES shops(phone),
     UNIQUE(phone, customer)
 );
+
+CREATE TABLE IF NOT EXISTS message_entries (
+    wamid       TEXT PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    table_name  TEXT NOT NULL,
+    row_id      INTEGER NOT NULL,
+    created_at  TEXT DEFAULT (datetime('now', '+1 hours'))
+);
 """
 
 
@@ -539,5 +556,13 @@ CREATE TABLE IF NOT EXISTS customer_receipts (
     token       TEXT NOT NULL UNIQUE,
     created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS'),
     UNIQUE(phone, customer)
+);
+
+CREATE TABLE IF NOT EXISTS message_entries (
+    wamid       TEXT PRIMARY KEY,
+    phone       TEXT NOT NULL,
+    table_name  TEXT NOT NULL,
+    row_id      INTEGER NOT NULL,
+    created_at  TEXT DEFAULT to_char((NOW() AT TIME ZONE 'UTC') + INTERVAL '1 hour', 'YYYY-MM-DD HH24:MI:SS')
 );
 """

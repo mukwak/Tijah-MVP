@@ -600,6 +600,9 @@ async def _process_message(message: dict):
     phone = message.get("from", "")
     msg_type = message.get("type", "")
 
+    # Extract reply-to context (when user swipes to reply to a specific message)
+    context_wamid = message.get("context", {}).get("id")
+
     log.info(f"Message from {phone}: type={msg_type}")
 
     db = await get_db()
@@ -805,6 +808,17 @@ async def _process_message(message: dict):
     if action not in ("confirm_yes", "confirm_no", "_clarify", ""):
         from app.handlers import _clear_pending
         await _clear_pending(db, phone)
+
+    # Look up reply-to context: if user replied to a specific message, find the entry
+    if context_wamid:
+        cursor = await db.execute(
+            "SELECT table_name, row_id FROM message_entries WHERE wamid = ? AND phone = ?",
+            (context_wamid, phone),
+        )
+        ref_row = await cursor.fetchone()
+        if ref_row:
+            intent["_ref_entry"] = {"table": ref_row[0], "row_id": ref_row[1]}
+            log.info(f"Reply-to context: {intent['_ref_entry']}")
 
     # Route to handler
     response_text = await _route_intent(phone, intent, lang)
@@ -1224,9 +1238,14 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
     """
     if not text:
         log.info(f"Empty response — not sending to {phone}")
-        return
+        return None
     log.info(f"Sending response to {phone}: include_voice={include_voice}, text_len={len(text)}")
-    await send_text(phone, text)
+    result = await send_text(phone, text)
+    wamid = None
+    try:
+        wamid = result.get("messages", [{}])[0].get("id")
+    except (IndexError, AttributeError):
+        pass
 
     if include_voice:
         try:
@@ -1242,6 +1261,20 @@ async def _send_response(phone: str, text: str, lang: str, include_voice: bool =
             log.info("Voice reply sent successfully")
         except Exception as e:
             log.error(f"TTS/audio send failed: {e}", exc_info=True)
+
+    # Save wamid → entry mapping for reply-to context
+    if wamid:
+        meta = handlers._pop_entry_meta(phone)
+        if meta:
+            try:
+                db = await get_db()
+                await db.execute(
+                    "INSERT OR IGNORE INTO message_entries (wamid, phone, table_name, row_id) VALUES (?, ?, ?, ?)",
+                    (wamid, phone, meta["table"], meta["row_id"]),
+                )
+                await db.commit()
+            except Exception as e:
+                log.error(f"Failed to save message entry mapping: {e}")
 
 
 def _verify_webhook_signature(request: Request, raw_body: bytes) -> bool:

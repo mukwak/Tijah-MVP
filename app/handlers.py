@@ -1,9 +1,25 @@
 """Business logic handlers for each intent."""
 import json
+import logging
 import re
 from datetime import datetime, timedelta
 from app.database import get_db
 from app.responses import get_response
+
+log = logging.getLogger("tijah")
+
+# --- Reply-to context: track which DB entry each outgoing message refers to ---
+_entry_meta: dict[str, dict] = {}  # phone -> {"table": str, "row_id": int}
+
+
+def _set_entry_meta(phone: str, table: str, row_id: int):
+    """Mark the entry that the current response refers to (for reply-to context)."""
+    _entry_meta[phone] = {"table": table, "row_id": row_id}
+
+
+def _pop_entry_meta(phone: str) -> dict | None:
+    """Consume and return the entry meta for this phone, or None."""
+    return _entry_meta.pop(phone, None)
 
 
 def _fmt(num: float) -> str:
@@ -160,17 +176,19 @@ async def handle_record_sale(phone: str, data: dict, lang: str) -> str:
     # Record sale (with optional backdating)
     when = _resolve_when(data.get("when", "today"))
     if when:
-        await db.execute(
+        result = await db.execute(
             """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, customer, is_credit, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (phone, product_id, product, quantity, unit_price, total, customer, 1 if is_credit else 0, when),
         )
     else:
-        await db.execute(
+        result = await db.execute(
             """INSERT INTO sales (phone, product_id, product_name, quantity, unit_price, total, customer, is_credit)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
             (phone, product_id, product, quantity, unit_price, total, customer, 1 if is_credit else 0),
         )
+    if result.lastrowid:
+        _set_entry_meta(phone, "sales", result.lastrowid)
 
     # If credit sale, also record in credits
     if is_credit and customer:
@@ -316,11 +334,13 @@ async def handle_add_stock(phone: str, data: dict, lang: str) -> str:
     )
 
     # Record entry
-    await db.execute(
+    result = await db.execute(
         """INSERT INTO stock_entries (phone, product_id, product_name, quantity, cost_price, entry_type, supplier)
            VALUES (?, ?, ?, ?, ?, 'purchase', ?)""",
         (phone, product_id, product, quantity, cost_price, supplier),
     )
+    if result.lastrowid:
+        _set_entry_meta(phone, "stock_entries", result.lastrowid)
     await db.commit()
 
     price_note = ""
@@ -520,10 +540,12 @@ async def handle_record_payment(phone: str, data: dict, lang: str) -> str:
         return not_found
 
     # Log the payment in the payments table (audit trail)
-    await db.execute(
+    ins = await db.execute(
         "INSERT INTO payments (phone, customer, amount) VALUES (?, ?, ?)",
         (phone, customer, amount),
     )
+    if ins.lastrowid:
+        _set_entry_meta(phone, "payments", ins.lastrowid)
 
     # Apply payment to credits (FIFO)
     remaining_payment = amount
@@ -760,10 +782,12 @@ async def handle_record_expense(phone: str, data: dict, lang: str) -> str:
     amount = float(data.get("amount") or 0)
     category = data.get("category", "other")
 
-    await db.execute(
+    ins = await db.execute(
         "INSERT INTO expenses (phone, description, amount, category) VALUES (?, ?, ?, ?)",
         (phone, description, amount, category),
     )
+    if ins.lastrowid:
+        _set_entry_meta(phone, "expenses", ins.lastrowid)
     await db.commit()
 
     result = get_response(
@@ -1506,8 +1530,14 @@ async def handle_edit_credit(phone: str, data: dict, lang: str) -> str:
 
     old_amount = float(data.get("old_amount") or 0)
 
-    # If old_amount is given, find that specific credit; otherwise find most recent
-    if old_amount:
+    # Reply-to context: if user replied to a specific credit message, target that credit
+    ref = data.get("_ref_entry")
+    if ref and ref["table"] == "credits":
+        cursor = await db.execute(
+            "SELECT id, amount FROM credits WHERE id = ? AND phone = ?",
+            (ref["row_id"], phone),
+        )
+    elif old_amount:
         cursor = await db.execute(
             """SELECT id, amount FROM credits
                WHERE phone = ? AND LOWER(customer) = LOWER(?) AND settled = 0 AND amount = ?
@@ -1542,6 +1572,17 @@ async def handle_credit_reminder(phone: str, data: dict, lang: str) -> str:
     """Generate a shareable/forwardable credit reminder for a customer."""
     db = await get_db()
     customer = data.get("customer", "")
+
+    # Reply-to context: if user replied to a credit message, look up the customer
+    ref = data.get("_ref_entry")
+    if ref and ref["table"] == "credits" and not customer:
+        cursor = await db.execute(
+            "SELECT customer FROM credits WHERE id = ? AND phone = ?",
+            (ref["row_id"], phone),
+        )
+        ref_row = await cursor.fetchone()
+        if ref_row:
+            customer = ref_row[0]
 
     if not customer:
         if lang == "pidgin":
@@ -1790,6 +1831,34 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
             return "Wetin you wan change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
         return "What do you want to change? Tell me like: \"change to 3 bags\" or \"the price was 5 thousand\""
 
+    # Reply-to context: if user replied to a specific message, target that entry directly
+    ref = data.get("_ref_entry")
+    if ref:
+        table, row_id = ref["table"], ref["row_id"]
+        new_value = float(new_value)
+        if table == "sales":
+            cur = await db.execute(
+                "SELECT id, product_name, quantity, unit_price, total, product_id, created_at FROM sales WHERE id = ? AND phone = ?",
+                (row_id, phone))
+            row = await cur.fetchone()
+            if row:
+                # Force this as the only candidate
+                return await _apply_edit(db, phone, "sale", row, field, new_value, lang)
+        elif table == "stock_entries":
+            cur = await db.execute(
+                "SELECT id, product_name, quantity, cost_price, product_id, created_at FROM stock_entries WHERE id = ? AND phone = ?",
+                (row_id, phone))
+            row = await cur.fetchone()
+            if row:
+                return await _apply_edit(db, phone, "stock", row, field, new_value, lang)
+        elif table == "expenses":
+            cur = await db.execute(
+                "SELECT id, description, amount, created_at FROM expenses WHERE id = ? AND phone = ?",
+                (row_id, phone))
+            row = await cur.fetchone()
+            if row:
+                return await _apply_edit(db, phone, "expense", row, field, new_value, lang)
+
     product = data.get("product")
     when_filter = data.get("when")
     norm_product = _normalize_product_name(product) if product else None
@@ -1860,25 +1929,25 @@ async def handle_edit_last(phone: str, data: dict, lang: str) -> str:
 
     new_value = float(new_value)
 
-    # --- Apply edit based on table type ---
+    return await _apply_edit(db, phone, table, row, field, new_value, lang)
+
+
+async def _apply_edit(db, phone, table, row, field, new_value, lang):
+    """Apply an edit to a specific entry (sale, stock, or expense)."""
     if table == "sale":
         sale_id, product_name, old_qty, old_price, old_total, product_id = row[0], row[1], row[2], row[3], row[4], row[5]
         new_qty, new_price, new_total = old_qty, old_price, old_total
-        old_display = None
 
         if field in ("quantity", "qty"):
-            old_display = f"{_fmt(old_qty)}"
             new_qty = new_value
             new_total = new_qty * new_price
             if product_id:
                 stock_diff = old_qty - new_qty
                 await db.execute("UPDATE products SET stock_qty = stock_qty + ? WHERE id = ?", (stock_diff, product_id))
         elif field in ("price", "unit_price"):
-            old_display = f"{_fmt(old_price)}"
             new_price = new_value
             new_total = new_qty * new_price
         elif field == "total":
-            old_display = f"{_fmt(old_total)}"
             new_total = new_value
             if new_qty > 0:
                 new_price = new_total / new_qty
@@ -1940,12 +2009,21 @@ async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
     db = await get_db()
     customer = data.get("customer")
 
-    # Find the most recent non-credit sale
-    cursor = await db.execute(
-        "SELECT id, product_name, quantity, unit_price, total, customer FROM sales "
-        "WHERE phone = ? AND is_credit = 0 ORDER BY created_at DESC LIMIT 1",
-        (phone,),
-    )
+    # Reply-to context: if user replied to a specific sale message, target that sale
+    ref = data.get("_ref_entry")
+    if ref and ref["table"] == "sales":
+        cursor = await db.execute(
+            "SELECT id, product_name, quantity, unit_price, total, customer FROM sales "
+            "WHERE id = ? AND phone = ?",
+            (ref["row_id"], phone),
+        )
+    else:
+        # Find the most recent non-credit sale
+        cursor = await db.execute(
+            "SELECT id, product_name, quantity, unit_price, total, customer FROM sales "
+            "WHERE phone = ? AND is_credit = 0 ORDER BY created_at DESC LIMIT 1",
+            (phone,),
+        )
     row = await cursor.fetchone()
     if not row:
         if lang == "pidgin":
@@ -1994,6 +2072,41 @@ async def handle_mark_credit(phone: str, data: dict, lang: str) -> str:
 async def handle_undo(phone: str, data: dict, lang: str) -> str:
     """Undo/delete: always show what will be deleted and ask for confirmation."""
     db = await get_db()
+
+    # Reply-to context: if user replied to a specific message, target that entry directly
+    ref = data.get("_ref_entry")
+    if ref:
+        table, row_id = ref["table"], ref["row_id"]
+        if table == "sales":
+            cursor = await db.execute(
+                "SELECT id, product_name, total, created_at, quantity, product_id FROM sales WHERE id = ? AND phone = ?",
+                (row_id, phone))
+        elif table == "stock_entries":
+            cursor = await db.execute(
+                "SELECT id, product_name, cost_price, created_at, quantity, product_id FROM stock_entries WHERE id = ? AND phone = ?",
+                (row_id, phone))
+        elif table == "expenses":
+            cursor = await db.execute(
+                "SELECT id, description, amount, created_at FROM expenses WHERE id = ? AND phone = ?",
+                (row_id, phone))
+        else:
+            cursor = await db.execute(
+                f"SELECT id FROM {table} WHERE id = ? AND phone = ?", (row_id, phone))
+        row = await cursor.fetchone()
+        if row:
+            # Show confirmation for this specific entry
+            entry = {"table": table, "id": row[0], "desc": row[1] if len(row) > 1 else "",
+                     "amount": row[2] if len(row) > 2 else 0, "created_at": row[3] if len(row) > 3 else ""}
+            await _save_pending(db, phone, {
+                "action": "delete_confirm",
+                "entry": entry,
+                "lang": lang,
+            })
+            desc = entry["desc"]
+            amt = _fmt(entry["amount"]) if entry["amount"] else ""
+            if lang == "pidgin":
+                return f"You wan delete {desc} ({amt} naira)?\n\nSay \"yes\" to confirm."
+            return f"Delete {desc} ({amt} naira)?\n\nSay \"yes\" to confirm."
 
     product_filter = data.get("product")
     if product_filter:
@@ -2740,11 +2853,13 @@ async def _get_pending(db, phone):
 
 
 async def _add_credit(db, phone, customer, amount, note=""):
-    await db.execute(
+    result = await db.execute(
         """INSERT INTO credits (phone, customer, amount, note)
            VALUES (?, ?, ?, ?)""",
         (phone, customer, amount, note),
     )
+    if result.lastrowid:
+        _set_entry_meta(phone, "credits", result.lastrowid)
 
 
 async def handle_privacy(phone: str, data: dict, lang: str) -> str:

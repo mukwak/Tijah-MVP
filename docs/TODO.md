@@ -217,7 +217,11 @@ Users often wait until they're done serving customers to record everything at on
 
 ### High Priority
 
-- [ ] **edit_last response unclear**: "Updated price to 55,000" doesn't say WHAT was updated (which product? stock cost or sale price?). Need clearer confirmation showing the full entry that was modified.
+- [x] **Reply-to context: undo** — "cancel that" replied to a specific message deletes that exact entry
+- [x] **Reply-to context: edit_last** — "the price was 55000" replied to a stock/sale message edits that exact entry
+- [x] **Reply-to context: mark_credit** — "that was on credit" replied to a sale message marks that exact sale
+- [x] **Reply-to context: edit_credit** — "change to 3000" replied to a credit message edits that exact credit
+- [x] **Reply-to context: credit_reminder** — "remind them" replied to a credit message targets that debtor
 - [ ] **Proactive nudges not scheduled**: Evening/morning/weekly nudge endpoints exist but no cron jobs call them. Need Render cron or external scheduler.
 
 ### Medium Priority
@@ -225,6 +229,8 @@ Users often wait until they're done serving customers to record everything at on
 - [ ] **Expense hint repetition**: "How did my shop do today?" hint fires for expense_count <= 2, so it can appear on back-to-back expenses. User said "leave as is for now."
 
 ### Fixed This Session
+
+- [x] edit_last response unclear — now shows "Updated rice stock cost from 5,000 to 55,000" with full context
 
 - [x] Voice product misrecognition (oil -> water) — added oil preservation rule to NLU
 - [x] Product correction in price_needed flow
